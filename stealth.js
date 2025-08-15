@@ -32,7 +32,14 @@ function init(){
   canvas.width=width;canvas.height=height;
   ctx=canvas.getContext('2d');
   parseMap();
-  startSnore();
+  // Start snoring sound after the player interacts with the page
+  const enableSound = () => {
+    startSnore();
+    window.removeEventListener('pointerdown', enableSound);
+    window.removeEventListener('keydown', enableSound);
+  };
+  window.addEventListener('pointerdown', enableSound, { once: true });
+  window.addEventListener('keydown', enableSound, { once: true });
   loop();
 }
 

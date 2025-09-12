@@ -18,8 +18,8 @@ let bgm;
 
 // プレイヤー（忍者）
 const player = {
-    x: 200,
-    // スタート時は上下の真ん中に配置
+    x: canvasWidth / 2 - 24,
+    // スタート時は画面中央に配置
     y: canvasHeight / 2 - 24,
     width: 48,
     height: 48,

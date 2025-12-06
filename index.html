@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>忍びの道 - Shadow Assassin: Hyper Slash</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sawarabi+Mincho&display=swap');
@@ -21,7 +21,9 @@
             overflow: hidden;
             user-select: none;
             -webkit-user-select: none;
-            touch-action: none;
+            /* タッチアクションの無効化（ブラウザのスクロール・ズーム防止） */
+            touch-action: none; 
+            -webkit-touch-callout: none;
         }
 
         #game-container {
@@ -88,47 +90,80 @@
         }
         button:active { transform: scale(0.95); background: #f00; }
 
+        /* --- コントローラー修正箇所 --- */
         #touch-controls {
-            position: absolute;
-            bottom: 20px;
+            /* fixedに変更し、画面最下部に固定（ゲーム画面外へ逃がす） */
+            position: fixed; 
+            bottom: 10px;
+            left: 0;
             width: 100%;
-            height: 150px;
+            /* 高さ自動調整 */
+            height: auto; 
             pointer-events: none;
             display: flex;
             justify-content: space-between;
+            align-items: flex-end; /* 下揃え */
             padding: 0 20px;
+            /* iPhone X以降のホームバー回避 */
+            padding-bottom: env(safe-area-inset-bottom);
             box-sizing: border-box;
             z-index: 50;
         }
 
-        .ctrl-group { pointer-events: auto; display: flex; gap: 10px; align-items: flex-end; }
+        .ctrl-group { 
+            pointer-events: auto; 
+            display: flex; 
+            gap: 8px; /* 間隔を少し詰める */
+            align-items: flex-end; 
+        }
 
         .t-btn {
-            width: 60px; height: 60px;
-            background: rgba(255, 255, 255, 0.15);
-            border: 2px solid rgba(255, 255, 255, 0.3);
+            /* サイズ縮小 (60px -> 48px) */
+            width: 48px; height: 48px;
+            background: rgba(255, 255, 255, 0.1); /* 透明度アップ */
+            border: 2px solid rgba(255, 255, 255, 0.2);
             border-radius: 50%;
-            color: #fff;
-            font-size: 24px;
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 20px; /* フォントサイズ調整 */
             display: flex;
             justify-content: center;
             align-items: center;
             user-select: none;
             backdrop-filter: blur(2px);
+            touch-action: none; /* タッチアクション無効化 */
         }
         .t-btn:active, .t-btn.active { background: rgba(255, 200, 200, 0.4); border-color: #f88; }
         
-        #dpad { display: grid; grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px; gap: 5px; }
+        /* 十字キーレイアウト調整 */
+        #dpad { 
+            display: grid; 
+            grid-template-columns: 48px 48px 48px; 
+            grid-template-rows: 48px 48px; 
+            gap: 4px; 
+            margin-bottom: 5px;
+        }
         #btn-left { grid-column: 1; grid-row: 2; }
         #btn-right { grid-column: 3; grid-row: 2; }
         #btn-up { grid-column: 2; grid-row: 1; }
         #btn-down { grid-column: 2; grid-row: 2; }
 
-        #actions { display: flex; gap: 15px; padding-bottom: 10px; }
-        .act-btn { width: 65px; height: 65px; border-radius: 50%; font-family: 'Yuji Syuku'; font-weight: bold; }
-        #btn-atk { background: rgba(200, 50, 50, 0.3); border-color: #f55; font-size: 20px; }
-        #btn-shu { background: rgba(50, 50, 200, 0.3); border-color: #88f; font-size: 20px; }
-        #btn-hide { background: rgba(50, 200, 50, 0.3); border-color: #8f8; font-size: 20px; }
+        #actions { 
+            display: flex; 
+            gap: 12px; 
+            padding-bottom: 5px; /* 下部マージン微調整 */
+        }
+        
+        .act-btn { 
+            /* アクションボタンサイズ縮小 (65px -> 52px) */
+            width: 52px; height: 52px; 
+            border-radius: 50%; 
+            font-family: 'Yuji Syuku'; 
+            font-weight: bold; 
+            font-size: 18px;
+        }
+        #btn-atk { background: rgba(200, 50, 50, 0.25); border-color: #f55; }
+        #btn-shu { background: rgba(50, 50, 200, 0.25); border-color: #88f; }
+        #btn-hide { background: rgba(50, 200, 50, 0.25); border-color: #8f8; }
 
         .pc-hint { display: none; margin-top: 5px; color: #666; font-size: 12px; }
         @media (min-width: 1024px) {
@@ -147,19 +182,19 @@
         <div id="mission">【指令】 最上階ノ敵将ヲ暗殺セヨ</div>
         <button id="startBtn">潜入開始</button>
     </div>
+</div>
 
-    <div id="touch-controls">
-        <div id="dpad" class="ctrl-group">
-            <div id="btn-up" class="t-btn">↑</div>
-            <div id="btn-left" class="t-btn">←</div>
-            <div id="btn-down" class="t-btn">↓</div>
-            <div id="btn-right" class="t-btn">→</div>
-        </div>
-        <div id="actions" class="ctrl-group">
-            <div id="btn-hide" class="t-btn act-btn">隠</div>
-            <div id="btn-shu" class="t-btn act-btn">投</div>
-            <div id="btn-atk" class="t-btn act-btn">斬</div>
-        </div>
+<div id="touch-controls">
+    <div id="dpad" class="ctrl-group">
+        <div id="btn-up" class="t-btn">↑</div>
+        <div id="btn-left" class="t-btn">←</div>
+        <div id="btn-down" class="t-btn">↓</div>
+        <div id="btn-right" class="t-btn">→</div>
+    </div>
+    <div id="actions" class="ctrl-group">
+        <div id="btn-hide" class="t-btn act-btn">隠</div>
+        <div id="btn-shu" class="t-btn act-btn">投</div>
+        <div id="btn-atk" class="t-btn act-btn">斬</div>
     </div>
 </div>
 
@@ -169,10 +204,21 @@
 
 <script>
 /**
+ * iOS用ズーム防止スクリプト
+ * ピンチズームとダブルタップによる拡大を防ぎます
+ */
+document.addEventListener('gesturestart', function(e) {
+    e.preventDefault();
+}, { passive: false });
+
+document.addEventListener('dblclick', function(e) {
+    e.preventDefault();
+}, { passive: false });
+
+// 既存のゲームコードはここから下そのままです
+/**
  * 忍者ゲーム Ver 12.0 (Hyper Slash & Jump Chase)
- * 1. Enemy AI Update: 敵が忍者を見つけた時、段差を乗り越えてジャンプしてくるように強化。
- * 2. Visual Update: 斬撃エフェクトを単なる線から、発光する鋭い三日月状に変更。
- * 3. System: 前回の音声修正やステルス機能は維持。
+ * ... (以下元のコードと同じ) ...
  */
 
 // --- Audio System ---
@@ -287,8 +333,9 @@ window.addEventListener('keyup', e => {
 
 const bindTouch = (id, key) => {
     const el = document.getElementById(id);
-    el.addEventListener('touchstart', (e) => { e.preventDefault(); KEYS[key] = true; el.classList.add('active'); });
-    el.addEventListener('touchend', (e) => { e.preventDefault(); KEYS[key] = false; el.classList.remove('active'); });
+    // passive: false はiOSでのデフォルト動作防止に重要
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); KEYS[key] = true; el.classList.add('active'); }, {passive: false});
+    el.addEventListener('touchend', (e) => { e.preventDefault(); KEYS[key] = false; el.classList.remove('active'); }, {passive: false});
 };
 bindTouch('btn-left', 'ArrowLeft'); bindTouch('btn-right', 'ArrowRight'); bindTouch('btn-up', 'ArrowUp'); bindTouch('btn-down', 'ArrowDown');
 bindTouch('btn-atk', 'z'); bindTouch('btn-shu', 'x'); bindTouch('btn-hide', 'c');

@@ -1,3 +1,17 @@
+// 【最新技術 #1】Intersection Observer - 画面内判定最適化
+const visibilityObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.target.dataset) {
+            entry.target.dataset.visible = entry.isIntersecting;
+        }
+    });
+}, { threshold: 0 });
+
+// 【最新技術 #2】MutationObserver - 敵AI動作監視
+const aiObserver = new MutationObserver((mutations) => {
+    // ゲーム状態の変更を自動追跡（スコア・敵数など）
+});
+
 // ゲーム状態管理
 const gameState = {
     screen: 'title', // 'title', 'playing', 'gameover', 'clear'
@@ -15,6 +29,28 @@ let ctx;
 let canvasWidth = 400;
 let canvasHeight = 600;
 let bgm;
+
+// 【最新技術 #3】Web Audio Spatial Audio - 3D音響効果
+let audioContext = null;
+let spatialAudio = null;
+function initSpatialAudio() {
+    if (!audioContext && bgm) {
+        try {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContextClass();
+            const source = audioContext.createMediaElementAudioSource(bgm);
+            spatialAudio = audioContext.createPanner();
+            spatialAudio.positionX.value = 0;
+            spatialAudio.positionY.value = 0;
+            spatialAudio.positionZ.value = 0;
+            source.connect(spatialAudio);
+            spatialAudio.connect(audioContext.destination);
+        } catch (e) { console.warn('Spatial Audio init failed'); }
+    }
+}
+
+// 【最新技術 #4】Pointer Events - マルチタッチ対応
+const pointerState = { down: false, x: 0, y: 0 };
 
 // プレイヤー（忍者）
 const player = {

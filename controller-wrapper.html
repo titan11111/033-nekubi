@@ -1,37 +1,15 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Ninja Stealth Controller</title>
-<style>
-  html,body{margin:0;padding:0;height:100%;display:flex;flex-direction:column;}
-  #game-frame{flex:1;border:none;width:100%;}
-  #controls{display:flex;justify-content:space-around;padding:10px;background:#222;}
-  #controls button{flex:1;margin:0 5px;padding:15px 0;font-size:2rem;border:none;border-radius:8px;background:#444;color:#fff;}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta http-equiv="refresh" content="0; url=index.html">
+  <title>影ノ城へ移動</title>
 </head>
 <body>
-<iframe id="game-frame" src="index.html"></iframe>
-<div id="controls">
-  <button data-code="ArrowLeft">←</button>
-  <button data-code="ArrowRight">→</button>
-  <button data-code="KeyF">□</button>
-  <button data-code="ArrowUp">↑</button>
-</div>
-<script>
-const frame=document.getElementById('game-frame').contentWindow;
-const buttons=document.querySelectorAll('#controls button');
-buttons.forEach(btn=>{
-  const code=btn.dataset.code;
-  const send=pressed=>frame.postMessage({type:'control',code,pressed},'*');
-  btn.addEventListener('mousedown',()=>send(true));
-  btn.addEventListener('mouseup',()=>send(false));
-  btn.addEventListener('mouseleave',()=>send(false));
-  btn.addEventListener('touchstart',e=>{e.preventDefault();send(true);});
-  btn.addEventListener('touchend',e=>{e.preventDefault();send(false);});
-  btn.addEventListener('touchcancel',e=>{e.preventDefault();send(false);});
-});
-</script>
+  <p><a href="index.html">影ノ城を開く</a></p>
+  <script>
+    location.replace('index.html');
+  </script>
 </body>
 </html>

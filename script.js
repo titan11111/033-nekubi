@@ -1,939 +1,1109 @@
-// 【最新技術 #1】Intersection Observer - 画面内判定最適化
-const visibilityObserver = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-        if (entry.target.dataset) {
-            entry.target.dataset.visible = entry.isIntersecting;
-        }
-    });
-}, { threshold: 0 });
+(() => {
+  'use strict';
 
-// 【最新技術 #2】MutationObserver - 敵AI動作監視
-const aiObserver = new MutationObserver((mutations) => {
-    // ゲーム状態の変更を自動追跡（スコア・敵数など）
-});
+  /*
+   * 実戦投入した現代Web機構:
+   * 1 Pointer Events / 2 Web Audio / 3 Canvas DPR / 4 rAF delta time
+   * 5 SVG Path2D / 6 OffscreenCanvas cache / 7 Vibration
+   * 8 localStorage / 9 Page Visibility / 10 Gamepad + Performance適応
+   */
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+  const panel = document.getElementById('action-panel');
+  const overlay = document.getElementById('overlay');
+  const titleEl = document.getElementById('title');
+  const missionEl = document.getElementById('mission');
+  const startBtn = document.getElementById('startBtn');
+  const stageLabel = document.getElementById('stageLabel');
+  const lifeLabel = document.getElementById('lifeLabel');
+  const weaponLabel = document.getElementById('weaponLabel');
+  const alertBox = document.getElementById('unified-alert');
+  const alertTitle = document.getElementById('alert-title');
+  const alertText = document.getElementById('alert-text');
+  const comboEl = document.getElementById('combo');
+  const muteBtn = document.getElementById('muteBtn');
 
-// ゲーム状態管理
-const gameState = {
-    screen: 'title', // 'title', 'playing', 'gameover', 'clear'
-    paused: false,
-    score: 0,
-    life: 3,
-    currentFloor: 1,
-    scrollY: 0,
-    gameSpeed: 2
-};
+  const STAGE_NAMES = ['壱ノ階', '弐ノ階', '参ノ階', '四ノ階', '天守'];
+  const input = Object.create(null);
+  const justPressed = new Set();
+  const paths = {
+    ninja: new Path2D('M-13-18 Q0-27 13-18 L16 8 8 21 0 13-8 21-16 8Z M-13-10 L13-10 10-3-10-3Z'),
+    enemy: new Path2D('M-15-15 L-8-24 0-19 8-24 15-15 13 18 4 23 0 13-4 23-13 18Z'),
+    shuriken: new Path2D('M0-13 4-4 13 0 4 4 0 13-4 4-13 0-4-4Z'),
+    kunai: new Path2D('M0-18 5-5 3 12-3 12-5-5Z')
+  };
 
-// キャンバス設定
-let canvas;
-let ctx;
-let canvasWidth = 400;
-let canvasHeight = 600;
-let bgm;
+  let W = 400;
+  let H = 600;
+  let dpr = 1;
+  let state = 'title';
+  let paused = false;
+  let currentStage = 1;
+  let player;
+  let enemies = [];
+  let platforms = [];
+  let shurikens = [];
+  let particles = [];
+  let slashes = [];
+  let door;
+  let lastTime = performance.now();
+  let frameCost = 0;
+  let shake = 0;
+  let flash = 0;
+  let hitStop = 0;
+  let alertTimer = 0;
+  let stageClearTimer = 0;
+  let executionTimer = 0;
+  let backgroundCache = null;
+  let highScore = Number(localStorage.getItem('nekubi-high-score') || 0);
+  let score = 0;
 
-// 【最新技術 #3】Web Audio Spatial Audio - 3D音響効果
-let audioContext = null;
-let spatialAudio = null;
-function initSpatialAudio() {
-    if (!audioContext && bgm) {
+  class Sound {
+    constructor() {
+      this.context = null;
+      this.wired = false;
+      this.master = null;
+      this.muted = localStorage.getItem('nekubi-muted') === '1';
+      this.currentBgm = null;
+      this.tracks = {
+        stealth: this.makeTrack('kokoro.mp3'),
+        action: this.makeTrack('nekugi.mp3')
+      };
+      this.updateButton();
+    }
+
+    makeTrack(src) {
+      const track = new Audio();
+      track.preload = 'none';
+      track.loop = true;
+      track.volume = 1;
+      track.crossOrigin = 'anonymous';
+      track.setAttribute('playsinline', '');
+      track.dataset.src = src;
+      return track;
+    }
+
+    unlock() {
+      if (!this.context) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return;
+        this.context = new AudioContextClass();
+        const buffer = this.context.createBuffer(1, 1, 22050);
+        const source = this.context.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.context.destination);
+        source.start(0);
+        this.wireBass();
+      }
+      if (this.context.state === 'suspended') this.context.resume().catch(() => {});
+    }
+
+    wireBass() {
+      if (this.wired || !this.context) return;
+      const ac = this.context;
+      const shelf = ac.createBiquadFilter();
+      shelf.type = 'lowshelf';
+      shelf.frequency.value = 140;
+      shelf.gain.value = 14;
+      const sub = ac.createBiquadFilter();
+      sub.type = 'peaking';
+      sub.frequency.value = 58;
+      sub.Q.value = 0.85;
+      sub.gain.value = 11;
+      const punch = ac.createBiquadFilter();
+      punch.type = 'peaking';
+      punch.frequency.value = 95;
+      punch.Q.value = 1.1;
+      punch.gain.value = 6;
+      const compressor = ac.createDynamicsCompressor();
+      compressor.threshold.value = -16;
+      compressor.knee.value = 12;
+      compressor.ratio.value = 3.2;
+      compressor.attack.value = 0.003;
+      compressor.release.value = 0.22;
+      this.master = ac.createGain();
+      this.master.gain.value = this.muted ? 0 : 1.55;
+      shelf.connect(sub);
+      sub.connect(punch);
+      punch.connect(compressor);
+      compressor.connect(this.master);
+      this.master.connect(ac.destination);
+      Object.values(this.tracks).forEach((track) => {
         try {
-            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            audioContext = new AudioContextClass();
-            const source = audioContext.createMediaElementAudioSource(bgm);
-            spatialAudio = audioContext.createPanner();
-            spatialAudio.positionX.value = 0;
-            spatialAudio.positionY.value = 0;
-            spatialAudio.positionZ.value = 0;
-            source.connect(spatialAudio);
-            spatialAudio.connect(audioContext.destination);
-        } catch (e) { console.warn('Spatial Audio init failed'); }
-    }
-}
-
-// 【最新技術 #4】Pointer Events - マルチタッチ対応
-const pointerState = { down: false, x: 0, y: 0 };
-
-// プレイヤー（忍者）
-const player = {
-    x: canvasWidth / 2 - 24,
-    // スタート時は画面中央に配置
-    y: canvasHeight / 2 - 24,
-    width: 48,
-    height: 48,
-    velocityX: 0,
-    velocityY: 0,
-    onGround: false,
-    direction: 1, // 1: 右, -1: 左
-    isJumping: false,
-    isAttacking: false,
-    invulnerable: false,
-    invulnerableTime: 0
-};
-
-// 敵配列
-let enemies = [];
-let projectiles = []; // 手裏剣や火炎弾
-const FIREBALL_HEAT_DENSITY = 1.0; // 温密度100%
-let enemyProjectiles = []; // 敵の矢
-let spawnedFloors = new Set();
-
-// フロア定義
-const floors = [
-    { y: 500, enemies: ['samurai'] },
-    { y: 400, enemies: ['samurai', 'archer'] },
-    { y: 300, enemies: ['samurai', 'archer', 'spearman'] },
-    { y: 200, enemies: ['samurai', 'archer', 'spearman', 'shieldman'] },
-    { y: 100, enemies: ['lord'] } // ボスフロア
-];
-
-const FLOOR_HEIGHT = 10;
-
-// 入力管理
-const keys = {};
-const touches = {};
-
-// ゲーム初期化
-function initGame() {
-    canvas = document.getElementById('game-canvas');
-    ctx = canvas.getContext('2d');
-    
-    // キャンバスサイズ調整
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    
-    // イベントリスナー設定
-    setupEventListeners();
-    
-    // ゲームループ開始
-    gameLoop();
-}
-
-// キャンバスサイズ調整
-function resizeCanvas() {
-    const container = document.getElementById('game-screen');
-    const rect = container.getBoundingClientRect();
-    
-    canvasWidth = Math.min(rect.width, 400);
-    canvasHeight = Math.min(rect.height - 140, 600); // UI分を除く
-    
-    canvas.width = canvasWidth;
-    canvas.height = canvasHeight;
-
-    // プレイヤー位置調整
-    player.x = canvasWidth / 2 - player.width / 2;
-    player.y = canvasHeight / 2 - player.height / 2;
-}
-
-// イベントリスナー設定
-function setupEventListeners() {
-    // タイトル画面
-    document.getElementById('start-button').addEventListener('click', startGame);
-    document.getElementById('restart-button').addEventListener('click', restartGame);
-    document.getElementById('play-again-button').addEventListener('click', restartGame);
-    
-    // キーボード操作
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-    
-    // スマホコントローラー
-    setupMobileControls();
-    
-    // 外部コントローラー対応
-    window.addEventListener('message', handleExternalController);
-}
-
-// スマホコントローラー設定
-function setupMobileControls() {
-    const btnLeft = document.getElementById('btn-left');
-    const btnRight = document.getElementById('btn-right');
-    const btnJump = document.getElementById('btn-jump');
-    const btnAttack = document.getElementById('btn-attack');
-    
-    // タッチイベント
-    btnLeft.addEventListener('touchstart', () => keys.ArrowLeft = true);
-    btnLeft.addEventListener('touchend', () => keys.ArrowLeft = false);
-    btnLeft.addEventListener('mousedown', () => keys.ArrowLeft = true);
-    btnLeft.addEventListener('mouseup', () => keys.ArrowLeft = false);
-    
-    btnRight.addEventListener('touchstart', () => keys.ArrowRight = true);
-    btnRight.addEventListener('touchend', () => keys.ArrowRight = false);
-    btnRight.addEventListener('mousedown', () => keys.ArrowRight = true);
-    btnRight.addEventListener('mouseup', () => keys.ArrowRight = false);
-    
-    btnJump.addEventListener('touchstart', () => jumpPlayer());
-    btnJump.addEventListener('click', () => jumpPlayer());
-    
-    btnAttack.addEventListener('touchstart', () => attackPlayer());
-    btnAttack.addEventListener('click', () => attackPlayer());
-}
-
-// 外部コントローラー対応
-function handleExternalController(event) {
-    const cmd = event.data;
-    if (cmd === 'left') keys.ArrowLeft = true;
-    else if (cmd === 'right') keys.ArrowRight = true;
-    else if (cmd === 'jump') jumpPlayer();
-    else if (cmd === 'action') attackPlayer();
-}
-
-// キーボード操作
-function handleKeyDown(e) {
-    keys[e.key] = true;
-    if (e.key === ' ') jumpPlayer();
-    if (e.key === 'x' || e.key === 'X') attackPlayer();
-}
-
-function handleKeyUp(e) {
-    keys[e.key] = false;
-}
-
-// ゲーム開始
-function startGame() {
-    document.getElementById('title-screen').style.display = 'none';
-    document.getElementById('game-screen').style.display = 'block';
-    resizeCanvas();
-
-    gameState.screen = 'playing';
-    gameState.score = 0;
-    gameState.life = 3;
-    gameState.currentFloor = 1;
-    gameState.scrollY = 0;
-
-    bgm.currentTime = 0;
-    bgm.play();
-
-    resetPlayer();
-    enemies = [];
-    projectiles = [];
-    enemyProjectiles = [];
-    spawnedFloors = new Set();
-    spawnEnemiesForFloor(1);
-    spawnedFloors.add(1);
-    updateUI();
-}
-
-// ゲーム再開
-function restartGame() {
-    document.getElementById('gameover-screen').style.display = 'none';
-    document.getElementById('clear-screen').style.display = 'none';
-    document.getElementById('title-screen').style.display = 'block';
-    document.getElementById('game-screen').style.display = 'none';
-
-    gameState.screen = 'title';
-    enemies = [];
-    projectiles = [];
-    enemyProjectiles = [];
-    spawnedFloors = new Set();
-
-    bgm.pause();
-    bgm.currentTime = 0;
-}
-
-// プレイヤーリセット
-function resetPlayer() {
-    player.x = canvasWidth / 2 - player.width / 2;
-    player.y = canvasHeight / 2 - player.height / 2;
-    player.velocityX = 0;
-    player.velocityY = 0;
-    player.onGround = false;
-    player.invulnerable = false;
-}
-
-// 指定したフロアの敵を生成
-function spawnEnemiesForFloor(floorIndex) {
-    const floor = floors[floorIndex - 1];
-    floor.enemies.forEach((enemyType, index) => {
-        const enemyHeight = enemyType === 'lord' ? 60 : 45;
-        let health = enemyType === 'lord' ? 5 : 1;
-        let speed = 0.5;
-        if (enemyType === 'samurai') {
-            speed = 1;
-        } else if (enemyType === 'spearman') {
-            speed = 1.2;
-        } else if (enemyType === 'shieldman') {
-            speed = 0.3;
-            health = 2;
-        } else if (enemyType === 'archer') {
-            speed = 0.5;
-        } else if (enemyType === 'lord') {
-            speed = 0;
+          ac.createMediaElementSource(track).connect(shelf);
+        } catch (_) {
+          track.volume = 1;
         }
-        const enemy = {
-            type: enemyType,
-            x: 50 + (index * 100),
-            y: floor.y - enemyHeight,
-            width: enemyType === 'lord' ? 80 : 45,
-            height: enemyHeight,
-            health: health,
-            direction: Math.random() > 0.5 ? 1 : -1,
-            speed: speed,
-            shootTimer: 0,
-            patrolLeft: 50 + (index * 100) - 50,
-            patrolRight: 50 + (index * 100) + 50
-        };
-        enemies.push(enemy);
-    });
-}
-
-// プレイヤージャンプ
-function jumpPlayer() {
-    if (gameState.screen !== 'playing') return;
-    if (player.onGround) {
-        player.velocityY = -15;
-        player.onGround = false;
-        player.isJumping = true;
+      });
+      this.wired = true;
     }
-}
 
-// プレイヤー攻撃
-function attackPlayer() {
-    if (gameState.screen !== 'playing') return;
-    if (!player.isAttacking) {
-        player.isAttacking = true;
-
-        // 火炎弾生成
-        projectiles.push({
-            type: 'fireball',
-            x: player.x + player.width / 2,
-            y: player.y + player.height / 2,
-            width: 20,
-            height: 20,
-            velocityX: player.direction * 8,
-            velocityY: 0,
-            temperatureDensity: FIREBALL_HEAT_DENSITY
-        });
-
-        setTimeout(() => player.isAttacking = false, 300);
+    tone(kind) {
+      if (this.muted) return;
+      this.unlock();
+      if (!this.context) return;
+      const ac = this.context;
+      const now = ac.currentTime;
+      const oscillator = ac.createOscillator();
+      const gain = ac.createGain();
+      const filter = ac.createBiquadFilter();
+      const config = {
+        tap: [180, 120, .035, 'triangle'],
+        jump: [150, 420, .14, 'triangle'],
+        slash: [950, 70, .12, 'sawtooth'],
+        hit: [180, 45, .15, 'square'],
+        throw: [1250, 500, .09, 'triangle'],
+        hide: [380, 850, .2, 'sine'],
+        alert: [290, 520, .28, 'sawtooth'],
+        door: [220, 880, .42, 'triangle'],
+        hurt: [120, 35, .3, 'square'],
+        finish: [90, 25, .75, 'sawtooth']
+      }[kind] || [220, 110, .1, 'sine'];
+      oscillator.type = config[3];
+      oscillator.frequency.setValueAtTime(config[0], now);
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, config[1]), now + config[2]);
+      filter.type = 'lowpass';
+      filter.frequency.value = kind === 'slash' ? 2800 : 1800;
+      gain.gain.setValueAtTime(kind === 'finish' ? .42 : .18, now);
+      gain.gain.exponentialRampToValueAtTime(.001, now + config[2]);
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.master || ac.destination);
+      oscillator.start(now);
+      oscillator.stop(now + config[2]);
     }
-}
 
-// ゲームループ
-function gameLoop() {
-    if (gameState.screen === 'playing' && !gameState.paused) {
-        update();
-        render();
+    playBgm(type) {
+      this.unlock();
+      const next = this.tracks[type];
+      if (!next) return;
+      if (!next.src) next.src = next.dataset.src;
+      Object.entries(this.tracks).forEach(([key, track]) => {
+        if (!track || key === type) return;
+        track.pause();
+        track.currentTime = 0;
+      });
+      this.currentBgm = type;
+      next.volume = 1;
+      next.muted = false;
+      if (this.master) this.master.gain.value = this.muted ? 0 : 1.55;
+      if (this.muted) {
+        next.pause();
+        return;
+      }
+      const playPromise = next.play();
+      if (playPromise) playPromise.catch(() => {});
     }
-    requestAnimationFrame(gameLoop);
-}
 
-// ゲーム更新
-function update() {
-    updatePlayer();
-    updateEnemies();
-    updateProjectiles();
-    updateCollisions();
-    updateGameProgress();
-}
+    pauseBgm() {
+      Object.values(this.tracks).forEach((track) => {
+        if (track) track.pause();
+      });
+    }
 
-// プレイヤー更新
-function updatePlayer() {
-    // 無敵時間管理
-    if (player.invulnerable) {
-        player.invulnerableTime--;
-        if (player.invulnerableTime <= 0) {
-            player.invulnerable = false;
+    stopBgm() {
+      Object.values(this.tracks).forEach((track) => {
+        if (!track) return;
+        track.pause();
+        track.currentTime = 0;
+      });
+      this.currentBgm = null;
+    }
+
+    resumeBgm() {
+      if (this.muted || !this.currentBgm) return;
+      this.playBgm(this.currentBgm);
+    }
+
+    toggle() {
+      this.muted = !this.muted;
+      localStorage.setItem('nekubi-muted', this.muted ? '1' : '0');
+      this.updateButton();
+      if (this.master) this.master.gain.value = this.muted ? 0 : 1.55;
+      if (this.muted) this.pauseBgm();
+      else {
+        this.tone('tap');
+        if (state === 'playing' && !paused) this.playBgm(this.currentBgm || 'stealth');
+        else if (state === 'win' || !overlay.classList.contains('hidden')) this.playBgm(this.currentBgm || 'stealth');
+      }
+    }
+
+    updateButton() {
+      muteBtn.textContent = this.muted ? '消音' : '音';
+      muteBtn.setAttribute('aria-label', this.muted ? '音を出す' : '音を消す');
+    }
+  }
+
+  const sound = new Sound();
+
+  class Player {
+    constructor() {
+      this.w = 30;
+      this.h = 42;
+      this.x = 32;
+      this.y = H - 100;
+      this.vx = 0;
+      this.vy = 0;
+      this.facing = 1;
+      this.grounded = false;
+      this.coyote = 0;
+      this.hp = 3;
+      this.ammo = 6;
+      this.hidden = false;
+      this.attackTimer = 0;
+      this.invincible = 0;
+      this.combo = 0;
+      this.comboWindow = 0;
+      this.trail = [];
+    }
+
+    update(dt) {
+      if (this.invincible > 0) this.invincible -= dt;
+      if (this.attackTimer > 0) this.attackTimer -= dt;
+      if (this.comboWindow > 0) this.comboWindow -= dt;
+      else this.combo = 0;
+
+      this.hidden = Boolean(input.hide && this.grounded && Math.abs(this.vx) < 1.2);
+      if (this.hidden) {
+        this.vx *= .65;
+      } else {
+        const direction = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+        this.vx += direction * 1.18 * dt;
+        this.vx *= Math.pow(.78, dt);
+        this.vx = clamp(this.vx, -6.4, 6.4);
+        if (direction) this.facing = direction;
+      }
+
+      if (consume('jump') && (this.grounded || this.coyote > 0)) {
+        this.vy = -13.3;
+        this.grounded = false;
+        this.coyote = 0;
+        burst(this.x + this.w / 2, this.y + this.h, '#c9bea3', 8, 3);
+        sound.tone('jump');
+      }
+
+      if (consume('attack') && !this.hidden) this.slash();
+      if (consume('throw') && !this.hidden) this.throwShuriken();
+
+      this.vy += .68 * dt;
+      const previousBottom = this.y + this.h;
+      this.x += this.vx * dt;
+      this.y += this.vy * dt;
+      this.x = clamp(this.x, 0, W - this.w);
+      this.grounded = false;
+
+      for (const platform of platforms) {
+        if (
+          this.vy >= 0 &&
+          this.x + this.w > platform.x &&
+          this.x < platform.x + platform.w &&
+          previousBottom <= platform.y + 9 &&
+          this.y + this.h >= platform.y
+        ) {
+          this.y = platform.y - this.h;
+          this.vy = 0;
+          this.grounded = true;
         }
+      }
+
+      this.coyote = this.grounded ? 7 : Math.max(0, this.coyote - dt);
+      if (this.y > H + 40) this.hurt(1, W / 2);
+
+      if (!this.hidden && (Math.abs(this.vx) > 3 || Math.abs(this.vy) > 5)) {
+        this.trail.unshift({ x: this.x, y: this.y, life: 11 });
+        if (this.trail.length > 5) this.trail.pop();
+      } else {
+        this.trail.length = 0;
+      }
     }
-    
-    // 左右移動
-    if (keys.ArrowLeft || keys['a'] || keys['A']) {
-        player.velocityX = -5;
-        player.direction = -1;
-    } else if (keys.ArrowRight || keys['d'] || keys['D']) {
-        player.velocityX = 5;
-        player.direction = 1;
+
+    slash() {
+      if (this.attackTimer > 2) return;
+      this.combo = this.comboWindow > 0 ? (this.combo % 3) + 1 : 1;
+      this.comboWindow = 25;
+      this.attackTimer = 10;
+      const reach = 45 + this.combo * 7;
+      const hitX = this.facing > 0 ? this.x + this.w : this.x - reach;
+      slashes.push({
+        x: this.x + this.w / 2,
+        y: this.y + this.h / 2,
+        facing: this.facing,
+        combo: this.combo,
+        life: 10
+      });
+      sound.tone('slash');
+      let struck = false;
+      for (const enemy of enemies) {
+        if (!enemy.dead && overlap(hitX, this.y - 8, reach, this.h + 16, enemy.x, enemy.y, enemy.w, enemy.h)) {
+          enemy.damage(this.combo === 3 ? 3 : 1, this.facing);
+          struck = true;
+        }
+      }
+      if (struck) {
+        this.vx -= this.facing * 1.2;
+        showCombo(this.combo);
+      }
+    }
+
+    throwShuriken() {
+      if (this.ammo <= 0 || this.attackTimer > 2) {
+        if (this.ammo <= 0) notify('武具', '手裏剣が尽きた。斬撃で敵を討て', 100);
+        return;
+      }
+      this.ammo -= 1;
+      this.attackTimer = 14;
+      shurikens.push({
+        x: this.x + this.w / 2,
+        y: this.y + 17,
+        vx: this.facing * 11.5,
+        rotation: 0,
+        active: true
+      });
+      sound.tone('throw');
+      updateHud();
+    }
+
+    hurt(amount, sourceX) {
+      if (this.invincible > 0 || state !== 'playing') return;
+      this.hp -= amount;
+      this.invincible = 72;
+      this.hidden = false;
+      this.x = clamp(this.x + (this.x < sourceX ? -28 : 28), 0, W - this.w);
+      this.y = Math.min(this.y, H - 120);
+      this.vy = -7;
+      shake = 15;
+      flash = 8;
+      sound.tone('hurt');
+      burst(this.x + this.w / 2, this.y + 20, '#c53127', 14, 6);
+      vibrate([25, 25, 35]);
+      updateHud();
+      if (this.hp <= 0) endGame(false);
+    }
+
+    draw() {
+      for (const trail of this.trail) {
+        ctx.save();
+        ctx.globalAlpha = trail.life / 30;
+        drawNinja(trail.x + this.w / 2, trail.y + this.h / 2, this.facing, false);
+        ctx.restore();
+        trail.life -= 1;
+      }
+      if (this.invincible > 0 && Math.floor(this.invincible / 4) % 2) return;
+      ctx.save();
+      ctx.globalAlpha = this.hidden ? .23 : 1;
+      drawNinja(this.x + this.w / 2, this.y + this.h / 2, this.facing, this.hidden);
+      ctx.restore();
+      if (this.hidden) {
+        ctx.fillStyle = 'rgba(220,230,225,.65)';
+        ctx.font = `700 13px ${getComputedStyle(document.documentElement).getPropertyValue('--display-font')}`;
+        ctx.textAlign = 'center';
+        ctx.fillText('隠レ身', this.x + this.w / 2, this.y - 9);
+      }
+    }
+  }
+
+  class Enemy {
+    constructor(x, y, type = 'ashigaru') {
+      this.x = x;
+      this.y = y;
+      this.w = type === 'musha' ? 38 : 31;
+      this.h = type === 'musha' ? 52 : 43;
+      this.type = type;
+      this.hp = type === 'musha' ? 6 : type === 'samurai' ? 4 : 2;
+      this.dead = false;
+      this.facing = -1;
+      this.origin = x;
+      this.vx = 0;
+      this.alerted = false;
+      this.attackCooldown = 25 + Math.random() * 50;
+      this.hitFlash = 0;
+    }
+
+    update(dt) {
+      if (this.dead) return;
+      if (this.hitFlash > 0) this.hitFlash -= dt;
+      this.attackCooldown -= dt;
+      const dx = player.x - this.x;
+      const dy = Math.abs(player.y - this.y);
+      const seesPlayer = !player.hidden && Math.abs(dx) < (this.type === 'samurai' ? 190 : 150) && dy < 60;
+      if (seesPlayer) {
+        if (!this.alerted) {
+          this.alerted = true;
+          notify('警戒', '敵兵に見つかった。隠れ身で気配を断て', 95);
+          sound.tone('alert');
+        }
+        this.facing = Math.sign(dx) || this.facing;
+        if (Math.abs(dx) > 34) this.vx = this.facing * (this.type === 'musha' ? 1.25 : 1.75);
+        else {
+          this.vx = 0;
+          if (this.attackCooldown <= 0) {
+            this.attackCooldown = this.type === 'musha' ? 70 : 52;
+            if (Math.abs(dx) < 46) player.hurt(1, this.x);
+          }
+        }
+      } else {
+        if (Math.abs(this.x - this.origin) > 72) this.facing = this.x > this.origin ? -1 : 1;
+        this.vx = this.facing * .62;
+        if (player.hidden) this.alerted = false;
+      }
+      this.x += this.vx * dt;
+    }
+
+    damage(amount, direction) {
+      if (this.dead) return;
+      this.hp -= amount;
+      this.x += direction * 10;
+      this.hitFlash = 7;
+      hitStop = amount >= 3 ? 7 : 4;
+      shake = amount >= 3 ? 17 : 10;
+      flash = amount >= 3 ? 5 : 2;
+      score += amount * 100;
+      sound.tone('hit');
+      vibrate(amount >= 3 ? [22, 18, 30] : 18);
+      burst(this.x + this.w / 2, this.y + this.h / 2, amount >= 3 ? '#fff2ad' : '#d43a2d', 13 + amount * 4, 7);
+      if (this.hp <= 0) {
+        this.dead = true;
+        score += 400;
+        burst(this.x + this.w / 2, this.y + this.h / 2, '#161617', 25, 10);
+        burst(this.x + this.w / 2, this.y + this.h / 2, '#c22c22', 18, 8);
+        if (Math.random() < .6) player.ammo = Math.min(9, player.ammo + 1);
+        checkDoor();
+      }
+      updateHud();
+    }
+
+    draw() {
+      if (this.dead) return;
+      ctx.save();
+      ctx.translate(this.x + this.w / 2, this.y + this.h / 2);
+      ctx.scale(this.facing, 1);
+      ctx.fillStyle = this.hitFlash > 0 ? '#fff' : this.type === 'musha' ? '#3b302a' : this.type === 'samurai' ? '#7e2827' : '#263d54';
+      ctx.strokeStyle = '#d2c19b';
+      ctx.lineWidth = 2;
+      ctx.fill(paths.enemy);
+      ctx.stroke(paths.enemy);
+      ctx.fillStyle = '#171719';
+      ctx.fillRect(-13, -11, 26, 7);
+      ctx.fillStyle = '#f0dfc1';
+      ctx.fillRect(3, -8, 6, 2);
+      ctx.strokeStyle = '#ddd5bd';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(7, 5);
+      ctx.lineTo(this.type === 'musha' ? 30 : 23, this.type === 'samurai' ? -14 : 16);
+      ctx.stroke();
+      if (this.alerted) {
+        ctx.scale(this.facing, 1);
+        ctx.fillStyle = '#f02d22';
+        ctx.font = '900 22px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('！', 0, -31);
+      }
+      ctx.restore();
+    }
+  }
+
+  function resizeCanvas() {
+    const rect = panel.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    H = 600;
+    W = Math.max(360, Math.round(H * (rect.width / Math.max(1, rect.height))));
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    backgroundCache = createBackgroundCache();
+    if (state === 'playing' || state === 'paused') buildStage(currentStage, true);
+  }
+
+  function createBackgroundCache() {
+    const cache = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(Math.ceil(W), H)
+      : document.createElement('canvas');
+    cache.width = Math.ceil(W);
+    cache.height = H;
+    const bg = cache.getContext('2d');
+    const gradient = bg.createLinearGradient(0, 0, 0, H);
+    gradient.addColorStop(0, currentStage >= 4 ? '#170909' : '#071018');
+    gradient.addColorStop(.6, '#11171a');
+    gradient.addColorStop(1, '#07090a');
+    bg.fillStyle = gradient;
+    bg.fillRect(0, 0, W, H);
+
+    bg.globalAlpha = .2;
+    bg.fillStyle = '#89929a';
+    for (let y = 60; y < H; y += 38) {
+      for (let x = (y / 38) % 2 ? -28 : 0; x < W; x += 74) {
+        bg.fillRect(x, y, 68, 32);
+      }
+    }
+    bg.globalAlpha = 1;
+    bg.fillStyle = '#e9dfa9';
+    bg.shadowColor = '#eadb92';
+    bg.shadowBlur = 34;
+    bg.beginPath();
+    bg.arc(W * .78, 82, 33, 0, Math.PI * 2);
+    bg.fill();
+    bg.shadowBlur = 0;
+    bg.fillStyle = 'rgba(2,6,8,.85)';
+    bg.beginPath();
+    bg.arc(W * .79 - 10, 74, 33, 0, Math.PI * 2);
+    bg.fill();
+    return cache;
+  }
+
+  function buildStage(stage, preserveStats = false) {
+    const oldHp = preserveStats && player ? player.hp : 3;
+    const oldAmmo = preserveStats && player ? player.ammo : 6;
+    player = new Player();
+    player.hp = oldHp;
+    player.ammo = oldAmmo;
+    platforms = [
+      { x: 0, y: H - 49, w: W, h: 49 },
+      { x: W * .18, y: H - 156, w: W * .45, h: 17 },
+      { x: 0, y: H - 268, w: W * .37, h: 17 },
+      { x: W * .48, y: H - 376, w: W * .45, h: 17 },
+      { x: W * .62, y: H - 487, w: W * .38, h: 18 }
+    ];
+    door = { x: W - 82, y: H - 577, w: 60, h: 90, open: false, pulse: 0 };
+    enemies = [];
+    const difficulty = stage - 1;
+    const types = stage >= 4 ? ['samurai', 'musha'] : stage >= 2 ? ['ashigaru', 'samurai'] : ['ashigaru'];
+    const slots = [
+      [W * .42, H - 92],
+      [W * .78, H - 92],
+      [W * .22, H - 199],
+      [W * .50, H - 199],
+      [W * .08, H - 311],
+      [W * .26, H - 311],
+      [W * .54, H - 419],
+      [W * .78, H - 419]
+    ];
+    const count = Math.min(slots.length, (2 + difficulty) * 2);
+    for (let i = 0; i < count; i += 1) {
+      const type = stage === 5 && i >= count - 2 ? 'musha' : types[i % types.length];
+      const enemy = new Enemy(slots[i][0], slots[i][1], type);
+      enemy.hp += difficulty;
+      enemies.push(enemy);
+    }
+    shurikens = [];
+    particles = [];
+    slashes = [];
+    stageClearTimer = 0;
+    backgroundCache = createBackgroundCache();
+    notify('忍務', stage === 5 ? '天守の敵将を討ち、奥の門へ' : '敵兵を全て討ち、上階の扉へ', 130);
+    updateHud();
+  }
+
+  function checkDoor() {
+    if (enemies.every((enemy) => enemy.dead) && !door.open) {
+      door.open = true;
+      sound.tone('door');
+      notify('開門', '扉が開いた。扉の前で「上」を押せ', 150);
+      vibrate([15, 25, 15]);
+    }
+  }
+
+  function tryDoor() {
+    if (!door || !overlap(player.x, player.y, player.w, player.h, door.x - 10, door.y, door.w + 20, door.h + 8)) return;
+    if (!door.open) {
+      notify('封印', `残る敵兵 ${enemies.filter((enemy) => !enemy.dead).length} 人`, 95);
+      return;
+    }
+    if (currentStage < 5) {
+      currentStage += 1;
+      buildStage(currentStage, true);
     } else {
-        player.velocityX *= 0.8; // 摩擦
+      state = 'execution';
+      executionTimer = 155;
+      sound.pauseBgm();
+      sound.tone('finish');
+      burst(W / 2, H / 2, '#c5201d', 70, 15);
     }
-    
-    // 重力
-    if (!player.onGround) {
-        player.velocityY += 0.8;
-    }
-    
-    // 位置更新
-    player.x += player.velocityX;
-    player.y += player.velocityY;
+  }
 
-    // 画面端制限
-    if (player.x < 0) player.x = 0;
-    if (player.x + player.width > canvasWidth) player.x = canvasWidth - player.width;
+  function update(dt) {
+    pollGamepad();
+    if (consume('door')) tryDoor();
+    player.update(dt);
+    for (const enemy of enemies) enemy.update(dt);
 
-    // フロアとの衝突判定
-    player.onGround = false;
-    floors.forEach(floor => {
-        if (player.y + player.height >= floor.y &&
-            player.y + player.height <= floor.y + FLOOR_HEIGHT &&
-            player.velocityY >= 0) {
-            player.y = floor.y - player.height;
-            player.velocityY = 0;
-            player.onGround = true;
-            player.isJumping = false;
+    for (const projectile of shurikens) {
+      projectile.x += projectile.vx * dt;
+      projectile.rotation += .65 * dt;
+      if (projectile.x < -20 || projectile.x > W + 20) projectile.active = false;
+      for (const enemy of enemies) {
+        if (
+          projectile.active &&
+          !enemy.dead &&
+          overlap(projectile.x - 8, projectile.y - 8, 16, 16, enemy.x, enemy.y, enemy.w, enemy.h)
+        ) {
+          projectile.active = false;
+          enemy.damage(2, Math.sign(projectile.vx));
         }
+      }
+    }
+    shurikens = shurikens.filter((projectile) => projectile.active);
+    particles.forEach((particle) => {
+      particle.x += particle.vx * dt;
+      particle.y += particle.vy * dt;
+      particle.vy += .13 * dt;
+      particle.life -= dt;
     });
-
-    // 最下層より下に落ちないように制限
-    if (player.y + player.height > floors[0].y + FLOOR_HEIGHT) {
-        player.y = floors[0].y - player.height;
-        player.velocityY = 0;
-        player.onGround = true;
-        player.isJumping = false;
+    particles = particles.filter((particle) => particle.life > 0);
+    slashes.forEach((slash) => { slash.life -= dt; });
+    slashes = slashes.filter((slash) => slash.life > 0);
+    door.pulse += .08 * dt;
+    if (alertTimer > 0) {
+      alertTimer -= dt;
+      if (alertTimer <= 0) alertBox.classList.remove('show');
     }
+    if (shake > 0) shake -= dt;
+    if (flash > 0) flash -= dt;
+  }
 
-    updateScroll();
-    updateCurrentFloor();
-}
+  function render() {
+    ctx.save();
+    if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+    if (backgroundCache) ctx.drawImage(backgroundCache, 0, 0, W, H);
+    drawCastleSilhouette();
+    platforms.forEach(drawPlatform);
+    drawDoor();
+    enemies.forEach((enemy) => enemy.draw());
+    shurikens.forEach(drawShuriken);
+    player.draw();
+    slashes.forEach(drawSlash);
+    particles.forEach(drawParticle);
+    ctx.restore();
 
-function updateScroll() {
-    const maxScroll = floors[0].y - floors[floors.length - 1].y;
-    gameState.scrollY = Math.min(Math.max(player.y - canvasHeight / 2, 0), maxScroll);
-}
-
-function updateCurrentFloor() {
-    let floorNum = 1;
-    for (let i = floors.length - 1; i >= 0; i--) {
-        if (player.y <= floors[i].y - 1) {
-            floorNum = i + 1;
-        }
+    if (flash > 0) {
+      ctx.fillStyle = `rgba(255,245,220,${Math.min(.6, flash / 10)})`;
+      ctx.fillRect(0, 0, W, H);
     }
-    const previousFloor = gameState.currentFloor;
-    gameState.currentFloor = floorNum;
-    if (gameState.currentFloor !== previousFloor && !spawnedFloors.has(gameState.currentFloor)) {
-        spawnEnemiesForFloor(gameState.currentFloor);
-        spawnedFloors.add(gameState.currentFloor);
+  }
+
+  function drawCastleSilhouette() {
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.beginPath();
+    ctx.moveTo(0, H - 50);
+    ctx.lineTo(0, 190);
+    ctx.lineTo(W * .15, 150);
+    ctx.lineTo(W * .3, 190);
+    ctx.lineTo(W * .47, 105);
+    ctx.lineTo(W * .64, 190);
+    ctx.lineTo(W * .82, 145);
+    ctx.lineTo(W, 185);
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawPlatform(platform) {
+    ctx.fillStyle = '#382a21';
+    ctx.fillRect(platform.x, platform.y, platform.w, platform.h);
+    ctx.fillStyle = '#776146';
+    ctx.fillRect(platform.x, platform.y, platform.w, 4);
+    ctx.strokeStyle = 'rgba(202,177,120,.22)';
+    for (let x = platform.x + 16; x < platform.x + platform.w; x += 34) {
+      ctx.beginPath();
+      ctx.moveTo(x, platform.y + 4);
+      ctx.lineTo(x - 8, platform.y + platform.h);
+      ctx.stroke();
     }
-    document.getElementById('current-floor').textContent = gameState.currentFloor;
-}
+  }
 
-// 敵更新
-function updateEnemies() {
-    enemies.forEach(enemy => {
-        if (['samurai', 'spearman', 'shieldman'].includes(enemy.type)) {
-            // 近接系：左右パトロール
-            enemy.x += enemy.speed * enemy.direction;
-            if (enemy.x <= enemy.patrolLeft || enemy.x >= enemy.patrolRight) {
-                enemy.direction *= -1;
-            }
-        } else if (enemy.type === 'archer') {
-            // 弓兵：定期的に矢を撃つ
-            enemy.shootTimer++;
-            if (enemy.shootTimer >= 120) { // 2秒間隔
-                enemyProjectiles.push({
-                    x: enemy.x,
-                    y: enemy.y + enemy.height / 2,
-                    width: 30,
-                    height: 4,
-                    velocityX: player.x < enemy.x ? -4 : 4,
-                    velocityY: 0
-                });
-                enemy.shootTimer = 0;
-            }
-        }
-    });
-}
-
-// 発射物更新
-function updateProjectiles() {
-    // プレイヤーの手裏剣
-    projectiles = projectiles.filter(projectile => {
-        projectile.x += projectile.velocityX;
-        projectile.y += projectile.velocityY;
-        return projectile.x > -20 && projectile.x < canvasWidth + 20;
-    });
-    
-    // 敵の矢
-    enemyProjectiles = enemyProjectiles.filter(projectile => {
-        projectile.x += projectile.velocityX;
-        return projectile.x > -30 && projectile.x < canvasWidth + 30;
-    });
-}
-
-// 衝突判定
-function updateCollisions() {
-    // プレイヤーと敵の衝突
-    if (!player.invulnerable) {
-        enemies.forEach(enemy => {
-            if (isColliding(player, enemy)) {
-                takeDamage();
-            }
-        });
-    }
-    
-    // プレイヤーと敵の矢の衝突
-    if (!player.invulnerable) {
-        enemyProjectiles.forEach((arrow, index) => {
-            if (isColliding(player, arrow)) {
-                enemyProjectiles.splice(index, 1);
-                takeDamage();
-            }
-        });
-    }
-    
-    // 手裏剣と敵の衝突
-    projectiles.forEach((shuriken, shurikenIndex) => {
-        enemies.forEach((enemy, enemyIndex) => {
-            if (isColliding(shuriken, enemy)) {
-                projectiles.splice(shurikenIndex, 1);
-                enemy.health--;
-                gameState.score += 100;
-                
-                if (enemy.health <= 0) {
-                    enemies.splice(enemyIndex, 1);
-                    gameState.score += enemy.type === 'lord' ? 1000 : 200;
-                }
-            }
-        });
-    });
-}
-
-// 衝突判定関数
-function isColliding(rect1, rect2) {
-    return rect1.x < rect2.x + rect2.width &&
-           rect1.x + rect1.width > rect2.x &&
-           rect1.y < rect2.y + rect2.height &&
-           rect1.y + rect1.height > rect2.y;
-}
-
-// ダメージ処理
-function takeDamage() {
-    gameState.life--;
-    player.invulnerable = true;
-    player.invulnerableTime = 120; // 2秒間無敵
-    
-    if (gameState.life <= 0) {
-        gameOver();
-    }
-    updateUI();
-}
-
-// ゲーム進行更新
-function updateGameProgress() {
-    // プレイヤーが最上階に到達したらクリア
-    if (player.y <= floors[floors.length - 1].y - player.height) {
-        gameClear();
-    }
-}
-
-// UI更新
-function updateUI() {
-    document.getElementById('life-count').textContent = gameState.life;
-    document.getElementById('current-floor').textContent = gameState.currentFloor;
-    document.getElementById('score').textContent = gameState.score;
-}
-
-// ゲームオーバー
-function gameOver() {
-    gameState.screen = 'gameover';
-    document.getElementById('final-score').textContent = `スコア: ${gameState.score}`;
-    document.getElementById('gameover-screen').style.display = 'block';
-}
-
-// ゲームクリア
-function gameClear() {
-    gameState.screen = 'clear';
-    document.getElementById('clear-score').textContent = `最終スコア: ${gameState.score}`;
-    document.getElementById('clear-screen').style.display = 'block';
-}
-
-// レンダリング
-function render() {
-    // 画面クリア
-    ctx.fillStyle = 'linear-gradient(to bottom, #2c3e50, #34495e, #1a252f)';
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    
-    // 背景（城の壁）
-    drawCastleBackground();
-    
-    // プレイヤー描画
-    drawPlayer();
-    
-    // 敵描画
-    enemies.forEach(enemy => drawEnemy(enemy));
-    
-    // 発射物描画
-    projectiles.forEach(projectile => {
-        if (projectile.type === 'fireball') {
-            drawFireball(projectile);
-        } else {
-            drawShuriken(projectile);
-        }
-    });
-    enemyProjectiles.forEach(arrow => drawArrow(arrow));
-    
-    // エフェクト描画
-    drawEffects();
-}
-
-// 城の背景描画
-function drawCastleBackground() {
-    // グラデーション背景
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight);
-    gradient.addColorStop(0, '#2c3e50');
-    gradient.addColorStop(0.5, '#34495e');
-    gradient.addColorStop(1, '#1a252f');
-    
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-    
-    // 城の壁パターン
-    ctx.strokeStyle = '#444';
+  function drawDoor() {
+    const glow = door.open ? .45 + Math.sin(door.pulse) * .18 : .08;
+    ctx.save();
+    ctx.shadowColor = door.open ? '#efcf73' : '#661914';
+    ctx.shadowBlur = door.open ? 24 : 7;
+    ctx.fillStyle = door.open ? `rgba(235,203,105,${glow})` : '#241815';
+    ctx.fillRect(door.x, door.y, door.w, door.h);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = door.open ? '#e6c766' : '#8e3428';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(door.x, door.y, door.w, door.h);
+    ctx.strokeStyle = '#75603b';
     ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(door.x + door.w / 2, door.y);
+    ctx.lineTo(door.x + door.w / 2, door.y + door.h);
+    ctx.stroke();
+    ctx.fillStyle = door.open ? '#fff0a5' : '#9f3b31';
+    ctx.font = '700 15px serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(door.open ? '開' : '封', door.x + door.w / 2, door.y + 50);
+    if (door.open) {
+      ctx.fillStyle = '#f3df9b';
+      ctx.font = '700 12px serif';
+      ctx.fillText('▲ 上で入る', door.x + door.w / 2, door.y - 10);
+    }
+    ctx.restore();
+  }
 
-    // フロア
-    ctx.fillStyle = '#555';
-    floors.forEach(floor => {
-        const y = floor.y - gameState.scrollY;
-        ctx.fillRect(0, y, canvasWidth, FLOOR_HEIGHT);
+  function drawNinja(x, y, facing, hidden) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(facing, 1);
+    ctx.fillStyle = hidden ? '#6a7774' : '#111519';
+    ctx.strokeStyle = '#8d8171';
+    ctx.lineWidth = 1.5;
+    ctx.fill(paths.ninja);
+    ctx.stroke(paths.ninja);
+    ctx.fillStyle = '#9d201b';
+    ctx.beginPath();
+    ctx.moveTo(-12, -6);
+    ctx.lineTo(-31, -12);
+    ctx.lineTo(-19, 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#f5eee0';
+    ctx.fillRect(4, -9, 7, 2);
+    ctx.strokeStyle = '#d7d7d2';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-7, 4);
+    ctx.lineTo(17, 18);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawShuriken(projectile) {
+    ctx.save();
+    ctx.translate(projectile.x, projectile.y);
+    ctx.rotate(projectile.rotation);
+    ctx.shadowColor = '#dffcff';
+    ctx.shadowBlur = 11;
+    ctx.fillStyle = '#edf4ed';
+    ctx.fill(paths.shuriken);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#25292c';
+    ctx.beginPath();
+    ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSlash(slash) {
+    const progress = 1 - slash.life / 10;
+    ctx.save();
+    ctx.translate(slash.x, slash.y);
+    ctx.scale(slash.facing, 1);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = slash.combo === 3 ? '#ffe17c' : '#d9ffff';
+    ctx.lineWidth = 8 - progress * 5;
+    ctx.shadowColor = slash.combo === 3 ? '#ff3426' : '#6ff';
+    ctx.shadowBlur = 22;
+    ctx.beginPath();
+    ctx.arc(0, 0, 36 + slash.combo * 7, -.9 + progress * .3, .8 + progress * .6);
+    ctx.stroke();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawParticle(particle) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, particle.life / particle.maxLife);
+    ctx.translate(particle.x, particle.y);
+    ctx.rotate(Math.atan2(particle.vy, particle.vx));
+    ctx.fillStyle = particle.color;
+    ctx.fillRect(-particle.size / 2, -particle.size / 2, particle.size * 2.4, particle.size);
+    ctx.restore();
+  }
+
+  function renderExecution() {
+    executionTimer -= 1;
+    render();
+    const phase = executionTimer / 155;
+    ctx.fillStyle = phase > .83 ? `rgba(255,255,255,${(phase - .83) * 5})` : 'rgba(120,0,0,.18)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(-.18);
+    ctx.strokeStyle = '#f6e6c4';
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(-W, H * .35);
+    ctx.lineTo(W, -H * .35);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#080808';
+    ctx.strokeStyle = '#c82720';
+    ctx.lineWidth = 8;
+    ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.min(118, W * .23)}px serif`;
+    ctx.strokeText('天 誅', W / 2, H / 2 + 35);
+    ctx.fillText('天 誅', W / 2, H / 2 + 35);
+    if (executionTimer <= 0) endGame(true);
+  }
+
+  function loop(now) {
+    const started = performance.now();
+    const dt = Math.min(2, Math.max(.35, (now - lastTime) / 16.667));
+    lastTime = now;
+    if (state === 'playing' && !paused) {
+      if (hitStop > 0) {
+        hitStop -= 1;
+        render();
+      } else {
+        update(dt);
+        render();
+      }
+    } else if (state === 'execution') {
+      renderExecution();
+    } else if ((state === 'playing' || state === 'paused') && player) {
+      render();
+    }
+    frameCost = frameCost * .95 + (performance.now() - started) * .05;
+    requestAnimationFrame(loop);
+  }
+
+  function startGame() {
+    sound.unlock();
+    sound.playBgm('stealth');
+    if (state === 'playing') return;
+    sound.tone('door');
+    currentStage = 1;
+    score = 0;
+    state = 'playing';
+    paused = false;
+    overlay.classList.add('hidden');
+    buildStage(1, false);
+    lastTime = performance.now();
+  }
+
+  function endGame(win) {
+    state = win ? 'win' : 'gameover';
+    if (win) sound.playBgm('action');
+    else sound.stopBgm();
+    highScore = Math.max(highScore, score);
+    localStorage.setItem('nekubi-high-score', String(highScore));
+    overlay.classList.remove('hidden');
+    titleEl.textContent = win ? '忍務完遂' : '無念';
+    missionEl.textContent = win
+      ? `戦果 ${score}　最高 ${highScore}`
+      : `戦果 ${score}　再び影より参れ`;
+    startBtn.textContent = win ? '再潜入' : '再挑戦';
+  }
+
+  function togglePause() {
+    if (state !== 'playing') return;
+    paused = !paused;
+    if (paused) sound.pauseBgm();
+    else sound.resumeBgm();
+    notify(paused ? '停止' : '再開', paused ? '忍務を一時停止した' : '忍務を再開する', 70);
+  }
+
+  function notify(title, text, duration = 100) {
+    alertTitle.textContent = title;
+    alertText.textContent = text;
+    alertTimer = duration;
+    alertBox.classList.remove('show');
+    void alertBox.offsetWidth;
+    alertBox.classList.add('show');
+  }
+
+  function showCombo(combo) {
+    if (combo < 2) return;
+    comboEl.textContent = combo === 3 ? '参ノ太刀！' : '弐連斬！';
+    comboEl.classList.remove('pop');
+    void comboEl.offsetWidth;
+    comboEl.classList.add('pop');
+  }
+
+  function burst(x, y, color, count, speed) {
+    const density = frameCost > 12 ? .55 : 1;
+    const actualCount = Math.ceil(count * density);
+    for (let i = 0; i < actualCount; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const velocity = Math.random() * speed + 1;
+      const life = 20 + Math.random() * 26;
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity,
+        color,
+        size: 2 + Math.random() * 3,
+        life,
+        maxLife: life
+      });
+    }
+  }
+
+  function updateHud() {
+    if (!player) return;
+    stageLabel.textContent = STAGE_NAMES[currentStage - 1];
+    lifeLabel.textContent = `命 ${'●'.repeat(Math.max(0, player.hp))}${'○'.repeat(Math.max(0, 3 - player.hp))}`;
+    weaponLabel.textContent = `手裏剣 × ${String(player.ammo).padStart(2, '0')}`;
+    weaponLabel.classList.toggle('empty', player.ammo === 0);
+  }
+
+  function bindButton(id, action, options = {}) {
+    const element = document.getElementById(id);
+    const press = (event) => {
+      event.preventDefault();
+      element.setPointerCapture?.(event.pointerId);
+      if (!input[action]) justPressed.add(action);
+      input[action] = true;
+      element.classList.add('is-pressed');
+      sound.tone('tap');
+      vibrate(15);
+      if (options.immediate) options.immediate();
+    };
+    const release = (event) => {
+      event?.preventDefault();
+      input[action] = false;
+      element.classList.remove('is-pressed');
+    };
+    element.addEventListener('pointerdown', press);
+    element.addEventListener('pointerup', release);
+    element.addEventListener('pointercancel', release);
+    element.addEventListener('lostpointercapture', release);
+  }
+
+  function setupInputs() {
+    bindButton('btn-left', 'left');
+    bindButton('btn-right', 'right');
+    bindButton('btn-down', 'down');
+    bindButton('btn-up', 'door');
+    bindButton('btn-a', 'attack');
+    bindButton('btn-b', 'jump');
+    bindButton('btn-x', 'throw');
+    bindButton('btn-y', 'hide');
+    bindButton('startPauseBtn', 'pause', { immediate: togglePause });
+    bindButton('selectBtn', 'guide', {
+      immediate: () => notify('操作', 'A斬る・B跳ぶ・X手裏剣・Y隠れる', 125)
     });
 
-    // 縦線（柱）
-    for (let x = 50; x < canvasWidth; x += 100) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, canvasHeight);
-        ctx.stroke();
-    }
-    
-    // 月と星
-    ctx.fillStyle = '#f1c40f';
-    ctx.beginPath();
-    ctx.arc(canvasWidth - 50, 50, 15, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 星
-    for (let i = 0; i < 5; i++) {
-        const x = Math.random() * canvasWidth;
-        const y = Math.random() * 150;
-        drawStar(x, y, 2);
-    }
-}
-
-// 星描画
-function drawStar(x, y, size) {
-    ctx.fillStyle = '#fff';
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
-    ctx.fill();
-}
-
-// プレイヤー描画
-function drawPlayer() {
-    ctx.save();
-    
-    // 無敵状態の点滅効果
-    if (player.invulnerable && Math.floor(player.invulnerableTime / 5) % 2) {
-        ctx.globalAlpha = 0.5;
-    }
-    
-    // 向きに応じて反転と拡大
-    if (player.direction === -1) {
-        ctx.translate(player.x + player.width, player.y - gameState.scrollY);
-        ctx.scale(-1.2, 1.2);
-    } else {
-        ctx.translate(player.x, player.y - gameState.scrollY);
-        ctx.scale(1.2, 1.2);
-    }
-    
-    // 忍者の体
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(12, 15, 16, 20);
-    
-    // 忍者の頭
-    ctx.beginPath();
-    ctx.arc(20, 12, 8, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // 目
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(16, 10, 3, 2);
-    ctx.fillRect(21, 10, 3, 2);
-    
-    ctx.restore();
-}
-
-// 敵描画
-function drawEnemy(enemy) {
-    ctx.save();
-    ctx.translate(enemy.x, enemy.y - gameState.scrollY);
-
-    if (enemy.type === 'samurai') {
-        // 侍
-        ctx.fillStyle = '#cc3333';
-        ctx.fillRect(15, 20, 15, 18);
-        
-        ctx.fillStyle = '#ffdbab';
-        ctx.beginPath();
-        ctx.arc(22.5, 15, 7, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // ちょんまげ
-        ctx.fillStyle = '#333333';
-        ctx.beginPath();
-        ctx.ellipse(22.5, 10, 4, 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(21, 5, 3, 8);
-        
-        // 刀
-        ctx.strokeStyle = '#666666';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(35, 15);
-        ctx.lineTo(35, 30);
-        ctx.stroke();
-        
-        ctx.fillStyle = '#8b4513';
-        ctx.fillRect(33, 12, 4, 3);
-
-    } else if (enemy.type === 'spearman') {
-        // 槍兵
-        ctx.fillStyle = '#228b22';
-        ctx.fillRect(14, 20, 17, 18);
-
-        ctx.fillStyle = '#ffdbab';
-        ctx.beginPath();
-        ctx.arc(22.5, 15, 7, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 槍
-        ctx.strokeStyle = '#8b4513';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(35, 15);
-        ctx.lineTo(45, 5);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#c0c0c0';
-        ctx.beginPath();
-        ctx.moveTo(45, 5);
-        ctx.lineTo(45, 25);
-        ctx.stroke();
-
-    } else if (enemy.type === 'shieldman') {
-        // 盾兵
-        ctx.fillStyle = '#555555';
-        ctx.fillRect(14, 20, 17, 18);
-
-        ctx.fillStyle = '#ffdbab';
-        ctx.beginPath();
-        ctx.arc(22.5, 15, 7, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 盾
-        ctx.fillStyle = '#999999';
-        ctx.beginPath();
-        ctx.arc(35, 28, 8, -Math.PI / 2, Math.PI / 2);
-        ctx.lineTo(35, 20);
-        ctx.closePath();
-        ctx.fill();
-
-    } else if (enemy.type === 'archer') {
-        // 弓兵
-        ctx.fillStyle = '#3366cc';
-        ctx.fillRect(14, 18, 14, 17);
-        
-        ctx.fillStyle = '#ffdbab';
-        ctx.beginPath();
-        ctx.arc(21, 13, 6, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 弓
-        ctx.strokeStyle = '#8b4513';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(8, 15, 7, -Math.PI/3, Math.PI/3, false);
-        ctx.stroke();
-        
-        ctx.strokeStyle = '#333333';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(5, 10);
-        ctx.lineTo(5, 20);
-        ctx.stroke();
-        
-    } else if (enemy.type === 'lord') {
-        // 殿（ボス）
-        ctx.fillStyle = '#6b46c1';
-        ctx.beginPath();
-        ctx.ellipse(40, 45, 35, 12, 0, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = '#7c3aed';
-        ctx.beginPath();
-        ctx.ellipse(40, 35, 25, 15, 0, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = '#ffdbab';
-        ctx.beginPath();
-        ctx.arc(25, 25, 12, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 髪
-        ctx.fillStyle = '#333333';
-        ctx.beginPath();
-        ctx.arc(20, 18, 8, 0, Math.PI);
-        ctx.fill();
-        
-        // 寝息
-        ctx.fillStyle = '#666666';
-        ctx.font = '12px Arial';
-        ctx.fillText('ZZZ', 50, 15);
-        
-        // ダメージ表示
-        if (enemy.health < 5) {
-            ctx.fillStyle = '#ff0000';
-            ctx.font = '10px Arial';
-            ctx.fillText(`HP: ${enemy.health}`, 10, 10);
-        }
-    }
-    
-    ctx.restore();
-}
-
-// 火炎弾描画
-function drawFireball(fireball) {
-    ctx.save();
-    const centerX = fireball.x + fireball.width / 2;
-    const centerY = fireball.y + fireball.height / 2 - gameState.scrollY;
-    ctx.translate(centerX, centerY);
-    ctx.globalAlpha = fireball.temperatureDensity;
-    ctx.shadowColor = 'rgba(255,0,0,1)';
-    ctx.shadowBlur = 20;
-    ctx.globalCompositeOperation = 'lighter';
-
-    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, fireball.width / 2);
-    gradient.addColorStop(0, '#ffffff');
-    gradient.addColorStop(0.3, '#ffdd55');
-    gradient.addColorStop(1, '#ff0000');
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(0, 0, fireball.width / 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = '#ffffff';
-    for (let i = 0; i < 4; i++) {
-        const sparkX = (Math.random() - 0.5) * fireball.width;
-        const sparkY = (Math.random() - 0.5) * fireball.height;
-        ctx.beginPath();
-        ctx.arc(sparkX, sparkY, 1.5, 0, Math.PI * 2);
-        ctx.fill();
-    }
-
-    ctx.restore();
-}
-
-// 手裏剣描画
-function drawShuriken(shuriken) {
-    ctx.save();
-    ctx.translate(shuriken.x + shuriken.width/2, shuriken.y + shuriken.height/2 - gameState.scrollY);
-    ctx.rotate(Date.now() * 0.01); // 回転アニメーション
-    
-    // 手裏剣の形
-    ctx.fillStyle = '#c0c0c0';
-    ctx.beginPath();
-    ctx.moveTo(0, -8);
-    ctx.lineTo(2, -2);
-    ctx.lineTo(8, 0);
-    ctx.lineTo(2, 2);
-    ctx.lineTo(0, 8);
-    ctx.lineTo(-2, 2);
-    ctx.lineTo(-8, 0);
-    ctx.lineTo(-2, -2);
-    ctx.closePath();
-    ctx.fill();
-    
-    ctx.fillStyle = '#666666';
-    ctx.beginPath();
-    ctx.arc(0, 0, 2, 0, Math.PI * 2);
-    ctx.fill();
-    
-    ctx.restore();
-}
-
-// 矢描画
-function drawArrow(arrow) {
-    ctx.fillStyle = '#8b4513';
-    ctx.fillRect(arrow.x, arrow.y - gameState.scrollY, 25, 2);
-
-    ctx.fillStyle = '#666666';
-    ctx.beginPath();
-    ctx.moveTo(arrow.x + 25, arrow.y - 2 - gameState.scrollY);
-    ctx.lineTo(arrow.x + 30, arrow.y + 1 - gameState.scrollY);
-    ctx.lineTo(arrow.x + 25, arrow.y + 4 - gameState.scrollY);
-    ctx.closePath();
-    ctx.fill();
-}
-
-// エフェクト描画
-function drawEffects() {
-    // 攻撃エフェクト
-    if (player.isAttacking) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.fillRect(player.x - 10, player.y - 10 - gameState.scrollY, player.width + 20, player.height + 20);
-    }
-
-    // ジャンプエフェクト
-    if (player.isJumping) {
-        ctx.strokeStyle = 'rgba(255, 107, 107, 0.5)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(player.x + player.width/2, player.y + player.height + 5 - gameState.scrollY, 15, 0, Math.PI * 2);
-        ctx.stroke();
-    }
-}
-
-// ページ読み込み時の初期化
-document.addEventListener('DOMContentLoaded', function() {
-    bgm = document.getElementById('bgm');
-
-    // ユーザーが操作したタイミングでBGMを再生
-    const enableBgm = () => {
-        bgm.play().catch(() => {});
+    const keyMap = {
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+      ArrowDown: 'down',
+      ArrowUp: 'door',
+      KeyZ: 'attack',
+      Space: 'attack',
+      KeyX: 'throw',
+      KeyC: 'hide',
+      ShiftLeft: 'hide',
+      KeyB: 'jump',
+      Enter: 'pause'
     };
-    document.addEventListener('pointerdown', enableBgm, { once: true });
-    document.addEventListener('keydown', enableBgm, { once: true });
+    document.addEventListener('keydown', (event) => {
+      const action = keyMap[event.code];
+      if (!action) return;
+      event.preventDefault();
+      if (!input[action]) justPressed.add(action);
+      input[action] = true;
+      if (action === 'pause') togglePause();
+    });
+    document.addEventListener('keyup', (event) => {
+      const action = keyMap[event.code];
+      if (action) input[action] = false;
+    });
+  }
 
-    // モバイルデバイスの判定
-    const isMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-        // モバイルでは自動的にコントローラーを表示
-        document.getElementById('mobile-controller').style.display = 'block';
+  function pollGamepad() {
+    const pad = navigator.getGamepads?.()[0];
+    if (!pad) return;
+    input.left = pad.axes[0] < -.35;
+    input.right = pad.axes[0] > .35;
+    gamepadEdge(pad.buttons[0]?.pressed, 'attack');
+    gamepadEdge(pad.buttons[1]?.pressed, 'jump');
+    gamepadEdge(pad.buttons[2]?.pressed, 'throw');
+    input.hide = Boolean(pad.buttons[3]?.pressed);
+  }
+
+  const gamepadPrevious = {};
+  function gamepadEdge(pressed, action) {
+    if (pressed && !gamepadPrevious[action]) justPressed.add(action);
+    gamepadPrevious[action] = pressed;
+  }
+
+  function consume(action) {
+    if (!justPressed.has(action)) return false;
+    justPressed.delete(action);
+    return true;
+  }
+
+  function vibrate(pattern) {
+    if (navigator.vibrate) navigator.vibrate(pattern);
+  }
+
+  function overlap(ax, ay, aw, ah, bx, by, bw, bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
+  document.addEventListener('selectstart', (event) => event.preventDefault());
+  document.addEventListener('dragstart', (event) => event.preventDefault());
+  document.addEventListener('gesturestart', (event) => event.preventDefault(), { passive: false });
+  document.addEventListener('dblclick', (event) => event.preventDefault());
+  document.addEventListener('contextmenu', (event) => event.preventDefault());
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (event) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 300) event.preventDefault();
+    lastTouchEnd = now;
+  }, { passive: false });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      sound.pauseBgm();
+      if (state === 'playing') paused = true;
     } else {
-        // デスクトップでもコントローラーを表示（小学生向け）
-        document.getElementById('mobile-controller').style.display = 'block';
+      sound.unlock();
+      if (state === 'playing' && !paused) sound.resumeBgm();
+      lastTime = performance.now();
     }
-    
-    // タッチイベントのデフォルト動作を防ぐ
-    document.addEventListener('touchstart', function(e) {
-        if (e.target.classList.contains('control-btn')) {
-            e.preventDefault();
-        }
-    }, { passive: false });
-    
-    document.addEventListener('touchmove', function(e) {
-        e.preventDefault();
-    }, { passive: false });
-    
-    // ゲーム初期化
-    initGame();
-});
+  });
+  window.addEventListener('pageshow', () => {
+    sound.unlock();
+    if (state === 'playing' && !paused) sound.resumeBgm();
+    lastTime = performance.now();
+  });
+  window.addEventListener('resize', resizeCanvas);
+  window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
+  window.addEventListener('error', () => notify('異常', '動作を再開できません。再挑戦してください', 300));
 
-// デバッグ用関数（開発時のテスト用）
-function debugInfo() {
-    console.log('Player:', player);
-    console.log('Enemies:', enemies.length);
-    console.log('GameState:', gameState);
-}
+  document.addEventListener('pointerdown', () => {
+    sound.unlock();
+  }, { capture: true });
+  document.addEventListener('keydown', (event) => {
+    sound.unlock();
+    if (overlay.classList.contains('hidden')) return;
+    if (event.code !== 'Enter' && event.code !== 'Space') return;
+    event.preventDefault();
+    startGame();
+  });
 
-// ゲーム一時停止/再開
-function togglePause() {
-    gameState.paused = !gameState.paused;
-}
+  startBtn.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    startBtn.classList.add('is-pressed');
+    sound.unlock();
+    sound.playBgm(state === 'win' ? 'action' : 'stealth');
+  });
+  startBtn.addEventListener('pointerup', (event) => {
+    event.preventDefault();
+    startBtn.classList.remove('is-pressed');
+    startGame();
+  });
+  startBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    startGame();
+  });
+  startBtn.addEventListener('pointercancel', () => startBtn.classList.remove('is-pressed'));
+  muteBtn.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    sound.toggle();
+  });
 
-// チート機能（デバッグ用）
-function debugMode() {
-    if (confirm('デバッグモードを有効にしますか？')) {
-        gameState.life = 99;
-        player.invulnerable = true;
-        updateUI();
-    }
-}
+  setupInputs();
+  resizeCanvas();
+  requestAnimationFrame(loop);
+})();

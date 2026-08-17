@@ -17,6 +17,7 @@
   const stageLabel = document.getElementById('stageLabel');
   const lifeLabel = document.getElementById('lifeLabel');
   const weaponLabel = document.getElementById('weaponLabel');
+  const jutsuLabel = document.getElementById('jutsuLabel');
   const alertBox = document.getElementById('unified-alert');
   const alertTitle = document.getElementById('alert-title');
   const alertText = document.getElementById('alert-text');
@@ -45,6 +46,8 @@
   let shurikens = [];
   let particles = [];
   let slashes = [];
+  let jutsuEffects = [];
+  let deathEchoes = [];
   let door;
   let lastTime = performance.now();
   let frameCost = 0;
@@ -150,8 +153,13 @@
       const config = {
         tap: [180, 120, .035, 'triangle'],
         jump: [150, 420, .14, 'triangle'],
-        slash: [950, 70, .12, 'sawtooth'],
+        slash: [1250, 90, .105, 'sawtooth'],
         hit: [180, 45, .15, 'square'],
+        kill: [110, 32, .32, 'sawtooth'],
+        fire: [95, 310, .48, 'sawtooth'],
+        water: [540, 130, .42, 'sine'],
+        thunder: [1500, 55, .28, 'square'],
+        ultimate: [70, 920, .9, 'sawtooth'],
         throw: [1250, 500, .09, 'triangle'],
         hide: [380, 850, .2, 'sine'],
         alert: [290, 520, .28, 'sawtooth'],
@@ -255,6 +263,8 @@
       this.combo = 0;
       this.comboWindow = 0;
       this.trail = [];
+      this.nin = 0;
+      this.jutsuIndex = 0;
     }
 
     update(dt) {
@@ -284,6 +294,7 @@
 
       if (consume('attack') && !this.hidden) this.slash();
       if (consume('throw') && !this.hidden) this.throwShuriken();
+      if (consume('jutsu') && !this.hidden) this.castJutsu();
 
       this.vy += .68 * dt;
       const previousBottom = this.y + this.h;
@@ -320,9 +331,10 @@
     slash() {
       if (this.attackTimer > 2) return;
       this.combo = this.comboWindow > 0 ? (this.combo % 3) + 1 : 1;
-      this.comboWindow = 25;
-      this.attackTimer = 10;
-      const reach = 45 + this.combo * 7;
+      this.comboWindow = 27;
+      this.attackTimer = this.combo === 3 ? 13 : 9;
+      const reach = [0, 57, 66, 78][this.combo];
+      this.vx += this.facing * [0, 2.8, 2.1, 4.2][this.combo];
       const hitX = this.facing > 0 ? this.x + this.w : this.x - reach;
       slashes.push({
         x: this.x + this.w / 2,
@@ -335,7 +347,7 @@
       let struck = false;
       for (const enemy of enemies) {
         if (!enemy.dead && overlap(hitX, this.y - 8, reach, this.h + 16, enemy.x, enemy.y, enemy.w, enemy.h)) {
-          enemy.damage(this.combo === 3 ? 3 : 1, this.facing);
+          enemy.damage(this.combo === 3 ? 4 : this.combo === 2 ? 2 : 1, this.facing, this.combo);
           struck = true;
         }
       }
@@ -343,6 +355,66 @@
         this.vx -= this.facing * 1.2;
         showCombo(this.combo);
       }
+    }
+
+    availableJutsu() {
+      return [
+        { name: '火遁', cost: 35 },
+        ...(currentStage >= 2 ? [{ name: '水遁', cost: 40 }] : []),
+        ...(currentStage >= 3 ? [{ name: '雷遁', cost: 55 }] : []),
+        ...(currentStage >= 5 ? [{ name: '終ノ奥義', cost: 100 }] : [])
+      ];
+    }
+
+    cycleJutsu() {
+      const list = this.availableJutsu();
+      this.jutsuIndex = (this.jutsuIndex + 1) % list.length;
+      notify('忍術', `${list[this.jutsuIndex].name}を選択`, 70);
+      sound.tone('tap');
+      updateHud();
+    }
+
+    castJutsu() {
+      const jutsu = this.availableJutsu()[this.jutsuIndex] || this.availableJutsu()[0];
+      if (this.nin < jutsu.cost) {
+        notify('忍力不足', `${jutsu.name}には忍力${jutsu.cost}が必要`, 85);
+        sound.tone('tap');
+        return;
+      }
+      this.nin -= jutsu.cost;
+      this.attackTimer = 24;
+      const cx = this.x + this.w / 2;
+      const cy = this.y + this.h / 2;
+      if (jutsu.name === '火遁') {
+        sound.tone('fire'); shake = 13; flash = 4;
+        jutsuEffects.push({ type: 'fire', x: cx, y: cy, facing: this.facing, life: 42, maxLife: 42 });
+        enemies.forEach((enemy) => {
+          const ahead = (enemy.x + enemy.w / 2 - cx) * this.facing;
+          if (!enemy.dead && ahead > -15 && ahead < 210 && Math.abs(enemy.y - this.y) < 90) enemy.damage(4, this.facing, 4, false);
+        });
+      } else if (jutsu.name === '水遁') {
+        sound.tone('water');
+        jutsuEffects.push({ type: 'water', x: cx, y: cy, facing: this.facing, life: 46, maxLife: 46 });
+        this.invincible = 50;
+        this.x = clamp(this.x + this.facing * 150, 0, W - this.w);
+        enemies.forEach((enemy) => {
+          if (!enemy.dead && Math.abs(enemy.x - cx) < 185 && Math.abs(enemy.y - this.y) < 100) {
+            enemy.vx = this.facing * 5; enemy.damage(2, this.facing, 2, false);
+          }
+        });
+      } else if (jutsu.name === '雷遁') {
+        sound.tone('thunder'); hitStop = 5; flash = 12; shake = 20;
+        const targets = enemies.filter((enemy) => !enemy.dead).sort((a, b) => Math.abs(a.x - cx) - Math.abs(b.x - cx)).slice(0, 4);
+        jutsuEffects.push({ type: 'thunder', x: cx, y: cy, targets, life: 30, maxLife: 30 });
+        targets.forEach((enemy) => enemy.damage(5, Math.sign(enemy.x - cx) || this.facing, 5, false));
+      } else {
+        sound.tone('ultimate'); hitStop = 12; flash = 20; shake = 28;
+        jutsuEffects.push({ type: 'ultimate', x: cx, y: cy, targets: enemies.filter((enemy) => !enemy.dead), life: 70, maxLife: 70 });
+        enemies.filter((enemy) => !enemy.dead).forEach((enemy) => enemy.damage(99, Math.sign(enemy.x - cx) || 1, 9, false));
+      }
+      notify(jutsu.name, jutsu.name === '終ノ奥義' ? '影・月喰一閃' : '忍法、発動', 75);
+      vibrate(jutsu.name === '終ノ奥義' ? [35, 20, 55, 25, 90] : [22, 18, 35]);
+      updateHud();
     }
 
     throwShuriken() {
@@ -417,10 +489,12 @@
       this.alerted = false;
       this.attackCooldown = 25 + Math.random() * 50;
       this.hitFlash = 0;
+      this.stagger = 0;
     }
 
     update(dt) {
       if (this.dead) return;
+      if (this.stagger > 0) { this.stagger -= dt; this.x += this.vx * dt; this.vx *= .84; return; }
       if (this.hitFlash > 0) this.hitFlash -= dt;
       this.attackCooldown -= dt;
       const dx = player.x - this.x;
@@ -449,21 +523,27 @@
       this.x += this.vx * dt;
     }
 
-    damage(amount, direction) {
+    damage(amount, direction, impact = 1, rewardNin = true) {
       if (this.dead) return;
+      const dealt = Math.min(this.hp, amount);
       this.hp -= amount;
-      this.x += direction * 10;
+      this.x += direction * (8 + impact * 3);
+      this.stagger = Math.min(22, 5 + impact * 2);
       this.hitFlash = 7;
       hitStop = amount >= 3 ? 7 : 4;
       shake = amount >= 3 ? 17 : 10;
       flash = amount >= 3 ? 5 : 2;
-      score += amount * 100;
+      score += dealt * 100;
+      if (rewardNin) player.nin = Math.min(100, player.nin + Math.min(18, 5 + dealt * 2));
       sound.tone('hit');
       vibrate(amount >= 3 ? [22, 18, 30] : 18);
       burst(this.x + this.w / 2, this.y + this.h / 2, amount >= 3 ? '#fff2ad' : '#d43a2d', 13 + amount * 4, 7);
       if (this.hp <= 0) {
+        deathEchoes.push({ x: this.x, y: this.y, w: this.w, h: this.h, facing: this.facing, type: this.type, life: 24, maxLife: 24, cut: impact });
         this.dead = true;
         score += 400;
+        if (rewardNin) player.nin = Math.min(100, player.nin + 12);
+        sound.tone('kill');
         burst(this.x + this.w / 2, this.y + this.h / 2, '#161617', 25, 10);
         burst(this.x + this.w / 2, this.y + this.h / 2, '#c22c22', 18, 8);
         if (Math.random() < .6) player.ammo = Math.min(9, player.ammo + 1);
@@ -554,9 +634,13 @@
   function buildStage(stage, preserveStats = false) {
     const oldHp = preserveStats && player ? player.hp : 3;
     const oldAmmo = preserveStats && player ? player.ammo : 6;
+    const oldNin = preserveStats && player ? player.nin : 0;
+    const oldJutsu = preserveStats && player ? player.jutsuIndex : 0;
     player = new Player();
     player.hp = oldHp;
     player.ammo = oldAmmo;
+    player.nin = oldNin;
+    player.jutsuIndex = Math.min(oldJutsu, player.availableJutsu().length - 1);
     platforms = [
       { x: 0, y: H - 49, w: W, h: 49 },
       { x: W * .18, y: H - 156, w: W * .45, h: 17 },
@@ -588,6 +672,8 @@
     shurikens = [];
     particles = [];
     slashes = [];
+    jutsuEffects = [];
+    deathEchoes = [];
     stageClearTimer = 0;
     backgroundCache = createBackgroundCache();
     notify('忍務', stage === 5 ? '天守の敵将を討ち、奥の門へ' : '敵兵を全て討ち、上階の扉へ', 130);
@@ -612,6 +698,8 @@
     if (currentStage < 5) {
       currentStage += 1;
       buildStage(currentStage, true);
+      const learned = currentStage === 2 ? '水遁' : currentStage === 3 ? '雷遁' : currentStage === 5 ? '終ノ奥義' : '';
+      if (learned) notify('忍術会得', `${learned}を会得した。SELECTで切替`, 155);
     } else {
       state = 'execution';
       executionTimer = 155;
@@ -638,7 +726,7 @@
           overlap(projectile.x - 8, projectile.y - 8, 16, 16, enemy.x, enemy.y, enemy.w, enemy.h)
         ) {
           projectile.active = false;
-          enemy.damage(2, Math.sign(projectile.vx));
+          enemy.damage(2, Math.sign(projectile.vx), 1, false);
         }
       }
     }
@@ -652,6 +740,10 @@
     particles = particles.filter((particle) => particle.life > 0);
     slashes.forEach((slash) => { slash.life -= dt; });
     slashes = slashes.filter((slash) => slash.life > 0);
+    jutsuEffects.forEach((effect) => { effect.life -= dt; });
+    jutsuEffects = jutsuEffects.filter((effect) => effect.life > 0);
+    deathEchoes.forEach((echo) => { echo.life -= dt; echo.y += .35 * dt; });
+    deathEchoes = deathEchoes.filter((echo) => echo.life > 0);
     door.pulse += .08 * dt;
     if (alertTimer > 0) {
       alertTimer -= dt;
@@ -668,10 +760,12 @@
     drawCastleSilhouette();
     platforms.forEach(drawPlatform);
     drawDoor();
+    deathEchoes.forEach(drawDeathEcho);
     enemies.forEach((enemy) => enemy.draw());
     shurikens.forEach(drawShuriken);
     player.draw();
     slashes.forEach(drawSlash);
+    jutsuEffects.forEach(drawJutsuEffect);
     particles.forEach(drawParticle);
     ctx.restore();
 
@@ -789,16 +883,70 @@
     ctx.translate(slash.x, slash.y);
     ctx.scale(slash.facing, 1);
     ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = slash.combo === 3 ? '#ffe17c' : '#d9ffff';
-    ctx.lineWidth = 8 - progress * 5;
+    ctx.strokeStyle = slash.combo === 3 ? '#ffe17c' : slash.combo === 2 ? '#b9edff' : '#f5ffff';
+    ctx.lineWidth = (slash.combo === 3 ? 11 : 8) - progress * 5;
     ctx.shadowColor = slash.combo === 3 ? '#ff3426' : '#6ff';
     ctx.shadowBlur = 22;
-    ctx.beginPath();
-    ctx.arc(0, 0, 36 + slash.combo * 7, -.9 + progress * .3, .8 + progress * .6);
-    ctx.stroke();
+    if (slash.combo === 1) {
+      ctx.beginPath(); ctx.arc(0, 0, 43, -.78, .78 + progress * .5); ctx.stroke();
+    } else if (slash.combo === 2) {
+      ctx.beginPath(); ctx.moveTo(-12, 35); ctx.quadraticCurveTo(29, 5, 56, -38); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(-12, -39); ctx.lineTo(68, 38); ctx.moveTo(-8, 40); ctx.lineTo(68, -35); ctx.stroke();
+    }
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 2;
     ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDeathEcho(echo) {
+    const fade = echo.life / echo.maxLife;
+    ctx.save();
+    ctx.globalAlpha = fade * .82;
+    ctx.translate(echo.x + echo.w / 2, echo.y + echo.h / 2);
+    ctx.scale(echo.facing, 1);
+    ctx.fillStyle = '#08090a';
+    ctx.strokeStyle = '#b82920';
+    ctx.lineWidth = 2;
+    ctx.save(); ctx.translate(0, -Math.min(10, (1 - fade) * 15)); ctx.fill(paths.enemy); ctx.stroke(paths.enemy); ctx.restore();
+    ctx.strokeStyle = '#fff1c2';
+    ctx.beginPath();
+    if (echo.cut >= 3) { ctx.moveTo(-24, -22); ctx.lineTo(26, 22); }
+    else { ctx.moveTo(-24, 2); ctx.lineTo(26, -3); }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawJutsuEffect(effect) {
+    const p = 1 - effect.life / effect.maxLife;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (effect.type === 'fire') {
+      ctx.translate(effect.x, effect.y); ctx.scale(effect.facing, 1);
+      for (let i = 0; i < 7; i += 1) {
+        const x = 25 + i * 27 + p * 18;
+        const r = Math.max(3, 30 - i * 2) * Math.sin(Math.min(1, p * 2.5) * Math.PI);
+        ctx.fillStyle = i % 2 ? 'rgba(255,55,18,.7)' : 'rgba(255,190,45,.75)';
+        ctx.beginPath(); ctx.arc(x, Math.sin(i * 2.1) * 18, Math.abs(r), 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (effect.type === 'water') {
+      ctx.strokeStyle = `rgba(100,225,255,${1 - p})`; ctx.lineWidth = 18 - p * 12; ctx.shadowColor = '#54ddff'; ctx.shadowBlur = 22;
+      ctx.beginPath(); ctx.moveTo(effect.x - effect.facing * 25, effect.y + 28); ctx.bezierCurveTo(effect.x + effect.facing * 35, effect.y - 55, effect.x + effect.facing * 105, effect.y + 55, effect.x + effect.facing * 170, effect.y - 18); ctx.stroke();
+    } else if (effect.type === 'thunder') {
+      ctx.strokeStyle = `rgba(210,245,255,${1 - p})`; ctx.lineWidth = 5; ctx.shadowColor = '#56bfff'; ctx.shadowBlur = 25;
+      let px = effect.x; let py = effect.y;
+      for (const target of effect.targets) {
+        const tx = target.x + target.w / 2; const ty = target.y + target.h / 2;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo((px + tx) / 2 + (Math.random() - .5) * 32, (py + ty) / 2); ctx.lineTo(tx, ty); ctx.stroke(); px = tx; py = ty;
+      }
+    } else {
+      ctx.fillStyle = `rgba(20,0,35,${.48 * (1 - p)})`; ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = `rgba(255,245,220,${1 - p})`; ctx.lineWidth = 7; ctx.shadowColor = '#d71919'; ctx.shadowBlur = 20;
+      for (const target of effect.targets) {
+        ctx.beginPath(); ctx.moveTo(effect.x, effect.y); ctx.lineTo(target.x + target.w / 2, target.y + target.h / 2); ctx.stroke();
+      }
+    }
     ctx.restore();
   }
 
@@ -870,6 +1018,7 @@
     paused = false;
     overlay.classList.add('hidden');
     buildStage(1, false);
+    notify('操作', 'A斬る・B跳ぶ・X手裏剣・Y火遁・▼隠れ身', 170);
     lastTime = performance.now();
   }
 
@@ -938,6 +1087,9 @@
     lifeLabel.textContent = `命 ${'●'.repeat(Math.max(0, player.hp))}${'○'.repeat(Math.max(0, 3 - player.hp))}`;
     weaponLabel.textContent = `手裏剣 × ${String(player.ammo).padStart(2, '0')}`;
     weaponLabel.classList.toggle('empty', player.ammo === 0);
+    const jutsu = player.availableJutsu()[player.jutsuIndex] || player.availableJutsu()[0];
+    jutsuLabel.textContent = `忍力 ${jutsu.name} ${String(Math.floor(player.nin)).padStart(3, '0')}%`;
+    jutsuLabel.classList.toggle('ready', player.nin >= jutsu.cost);
   }
 
   function bindButton(id, action, options = {}) {
@@ -966,26 +1118,27 @@
   function setupInputs() {
     bindButton('btn-left', 'left');
     bindButton('btn-right', 'right');
-    bindButton('btn-down', 'down');
+    bindButton('btn-down', 'hide');
     bindButton('btn-up', 'door');
     bindButton('btn-a', 'attack');
     bindButton('btn-b', 'jump');
     bindButton('btn-x', 'throw');
-    bindButton('btn-y', 'hide');
+    bindButton('btn-y', 'jutsu');
     bindButton('startPauseBtn', 'pause', { immediate: togglePause });
     bindButton('selectBtn', 'guide', {
-      immediate: () => notify('操作', 'A斬る・B跳ぶ・X手裏剣・Y隠れる', 125)
+      immediate: () => player ? player.cycleJutsu() : notify('操作', 'A斬る・B跳ぶ・X手裏剣・Y忍術・▼隠れる', 125)
     });
 
     const keyMap = {
       ArrowLeft: 'left',
       ArrowRight: 'right',
-      ArrowDown: 'down',
+      ArrowDown: 'hide',
       ArrowUp: 'door',
       KeyZ: 'attack',
       Space: 'attack',
       KeyX: 'throw',
-      KeyC: 'hide',
+      KeyC: 'jutsu',
+      KeyV: 'jutsu',
       ShiftLeft: 'hide',
       KeyB: 'jump',
       Enter: 'pause'
@@ -1012,7 +1165,10 @@
     gamepadEdge(pad.buttons[0]?.pressed, 'attack');
     gamepadEdge(pad.buttons[1]?.pressed, 'jump');
     gamepadEdge(pad.buttons[2]?.pressed, 'throw');
-    input.hide = Boolean(pad.buttons[3]?.pressed);
+    gamepadEdge(pad.buttons[3]?.pressed, 'jutsu');
+    input.hide = Boolean(pad.buttons[12]?.pressed || pad.buttons[4]?.pressed);
+    if (pad.buttons[8]?.pressed && !gamepadPrevious.cycle && player) player.cycleJutsu();
+    gamepadPrevious.cycle = Boolean(pad.buttons[8]?.pressed);
   }
 
   const gamepadPrevious = {};

@@ -101,6 +101,17 @@ button {
   border-color: #633;
 }
 
+#jutsuLabel {
+  color: #9feaff;
+  border-color: rgba(87, 205, 231, .58) !important;
+}
+
+#jutsuLabel.ready {
+  color: #fff2a8;
+  box-shadow: 0 0 14px rgba(255, 209, 75, .38);
+  animation: jutsu-ready .8s ease-in-out infinite alternate;
+}
+
 .utility-btn {
   width: 37px;
   height: 31px;
@@ -449,6 +460,16 @@ button {
   35% { opacity: 1; transform: rotate(-7deg) scale(1); }
   75% { opacity: 1; transform: rotate(-7deg) scale(1.08); }
   100% { opacity: 0; transform: rotate(-7deg) scale(.7) translateY(-20px); }
+}
+
+@keyframes jutsu-ready {
+  to { filter: brightness(1.38); transform: translateY(-1px); }
+}
+
+@media (max-width: 620px) {
+  #hud { flex-wrap: wrap; gap: 3px; }
+  #hud > span { padding: 3px 6px; }
+  #jutsuLabel { order: 5; }
 }
 
 @media (orientation: landscape) and (max-height: 520px) {

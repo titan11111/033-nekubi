@@ -23,13 +23,14 @@
         <h1 id="title">影ノ城</h1>
         <p id="mission">敵兵ヲ退ケ、最上階ノ敵将ヲ討テ</p>
         <button id="startBtn" type="button">忍務開始</button>
-        <p class="start-guide">斬・手裏剣・隠れ身を使い分けよ</p>
+        <p class="start-guide">斬って忍力を溜め、火・水・雷の術を放て</p>
       </div>
       <canvas id="gameCanvas" width="800" height="600"></canvas>
       <div id="hud">
         <span id="stageLabel">壱ノ階</span>
         <span id="lifeLabel">命 ●●●</span>
         <span id="weaponLabel">手裏剣 × 06</span>
+        <span id="jutsuLabel">忍力 火遁 000%</span>
         <button id="muteBtn" class="utility-btn" type="button" aria-label="音を消す">音</button>
       </div>
       <div id="unified-alert" role="status" aria-live="polite">
@@ -46,19 +47,19 @@
           <button id="btn-left" class="pad-btn left" type="button" aria-label="左へ移動">◀</button>
           <span class="pad-center"></span>
           <button id="btn-right" class="pad-btn right" type="button" aria-label="右へ移動">▶</button>
-          <button id="btn-down" class="pad-btn down" type="button" aria-label="しゃがむ">▼</button>
+          <button id="btn-down" class="pad-btn down" type="button" aria-label="隠れ身">▼</button>
         </div>
       </div>
 
       <div id="center-controls">
-        <button id="selectBtn" class="pill-btn" type="button">SELECT<small>案内</small></button>
+        <button id="selectBtn" class="pill-btn" type="button">SELECT<small>忍術切替</small></button>
         <button id="startPauseBtn" class="pill-btn" type="button">START<small>停止</small></button>
       </div>
 
       <div class="controller-grip right-grip">
         <div id="actions" aria-label="アクションボタン">
           <button id="btn-x" class="action-btn x-btn" type="button"><b>X</b><small>手裏剣</small></button>
-          <button id="btn-y" class="action-btn y-btn" type="button"><b>Y</b><small>隠れる</small></button>
+          <button id="btn-y" class="action-btn y-btn" type="button"><b>Y</b><small>忍術</small></button>
           <button id="btn-a" class="action-btn a-btn" type="button"><b>A</b><small>斬る</small></button>
           <button id="btn-b" class="action-btn b-btn" type="button"><b>B</b><small>跳ぶ</small></button>
         </div>

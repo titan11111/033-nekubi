@@ -60,6 +60,7 @@
   let backgroundCache = null;
   let highScore = Number(localStorage.getItem('nekubi-high-score') || 0);
   let score = 0;
+  let ninTipShown = false;
 
   class Sound {
     constructor() {
@@ -475,12 +476,13 @@
   }
 
   class Enemy {
-    constructor(x, y, type = 'ashigaru') {
+    constructor(x, y, type = 'ashigaru', platformIndex = 0) {
       this.x = x;
       this.y = y;
       this.w = type === 'musha' ? 38 : 31;
       this.h = type === 'musha' ? 52 : 43;
       this.type = type;
+      this.platformIndex = platformIndex;
       this.hp = type === 'musha' ? 6 : type === 'samurai' ? 4 : 2;
       this.dead = false;
       this.facing = -1;
@@ -494,7 +496,15 @@
 
     update(dt) {
       if (this.dead) return;
-      if (this.stagger > 0) { this.stagger -= dt; this.x += this.vx * dt; this.vx *= .84; return; }
+      const floor = platforms[this.platformIndex];
+      const leftEdge = floor.x + 3;
+      const rightEdge = floor.x + floor.w - this.w - 3;
+      if (this.stagger > 0) {
+        this.stagger -= dt;
+        this.x = clamp(this.x + this.vx * dt, leftEdge, rightEdge);
+        this.vx *= .84;
+        return;
+      }
       if (this.hitFlash > 0) this.hitFlash -= dt;
       this.attackCooldown -= dt;
       const dx = player.x - this.x;
@@ -516,11 +526,16 @@
           }
         }
       } else {
-        if (Math.abs(this.x - this.origin) > 72) this.facing = this.x > this.origin ? -1 : 1;
+        if (Math.abs(this.x - this.origin) > Math.min(72, floor.w * .28)) this.facing = this.x > this.origin ? -1 : 1;
         this.vx = this.facing * .62;
         if (player.hidden) this.alerted = false;
       }
       this.x += this.vx * dt;
+      if (this.x <= leftEdge || this.x >= rightEdge) {
+        this.x = clamp(this.x, leftEdge, rightEdge);
+        this.facing *= -1;
+        this.vx = 0;
+      }
     }
 
     damage(amount, direction, impact = 1, rewardNin = true) {
@@ -534,7 +549,13 @@
       shake = amount >= 3 ? 17 : 10;
       flash = amount >= 3 ? 5 : 2;
       score += dealt * 100;
-      if (rewardNin) player.nin = Math.min(100, player.nin + Math.min(18, 5 + dealt * 2));
+      if (rewardNin) {
+        player.nin = Math.min(100, player.nin + Math.min(18, 5 + dealt * 2));
+        if (!ninTipShown) {
+          ninTipShown = true;
+          notify('忍力上昇', '刀を当て、刀で討つほど忍力が溜まる', 115);
+        }
+      }
       sound.tone('hit');
       vibrate(amount >= 3 ? [22, 18, 30] : 18);
       burst(this.x + this.w / 2, this.y + this.h / 2, amount >= 3 ? '#fff2ad' : '#d43a2d', 13 + amount * 4, 7);
@@ -650,23 +671,39 @@
     ];
     door = { x: W - 82, y: H - 577, w: 60, h: 90, open: false, pulse: 0 };
     enemies = [];
-    const difficulty = stage - 1;
-    const types = stage >= 4 ? ['samurai', 'musha'] : stage >= 2 ? ['ashigaru', 'samurai'] : ['ashigaru'];
-    const slots = [
-      [W * .42, H - 92],
-      [W * .78, H - 92],
-      [W * .22, H - 199],
-      [W * .50, H - 199],
-      [W * .08, H - 311],
-      [W * .26, H - 311],
-      [W * .54, H - 419],
-      [W * .78, H - 419]
+    // 下層の単体戦から門前の強敵へ、階ごとに密度と敵種を段階的に上げる。
+    const layouts = [
+      [
+        [0, .62, 'ashigaru'], [1, .56, 'ashigaru'],
+        [2, .34, 'ashigaru'], [4, .18, 'ashigaru']
+      ],
+      [
+        [0, .40, 'ashigaru'], [0, .78, 'ashigaru'], [1, .54, 'ashigaru'],
+        [2, .36, 'samurai'], [4, .22, 'samurai']
+      ],
+      [
+        [0, .38, 'ashigaru'], [0, .78, 'samurai'], [1, .25, 'ashigaru'],
+        [2, .50, 'samurai'], [3, .22, 'samurai'], [4, .28, 'samurai']
+      ],
+      [
+        [0, .32, 'samurai'], [0, .76, 'samurai'], [1, .22, 'ashigaru'],
+        [1, .72, 'samurai'], [2, .42, 'samurai'], [3, .34, 'musha'],
+        [4, .24, 'musha']
+      ],
+      [
+        [0, .28, 'samurai'], [0, .75, 'musha'], [1, .20, 'samurai'],
+        [1, .72, 'samurai'], [2, .36, 'musha'], [3, .18, 'samurai'],
+        [3, .70, 'musha'], [4, .30, 'musha']
+      ]
     ];
-    const count = Math.min(slots.length, (2 + difficulty) * 2);
-    for (let i = 0; i < count; i += 1) {
-      const type = stage === 5 && i >= count - 2 ? 'musha' : types[i % types.length];
-      const enemy = new Enemy(slots[i][0], slots[i][1], type);
-      enemy.hp += difficulty;
+    const hpBonus = Math.floor((stage - 1) / 2);
+    for (const [platformIndex, ratio, type] of layouts[stage - 1]) {
+      const floor = platforms[platformIndex];
+      const enemy = new Enemy(floor.x, floor.y, type, platformIndex);
+      enemy.x = floor.x + 4 + (floor.w - enemy.w - 8) * ratio;
+      enemy.y = floor.y - enemy.h;
+      enemy.origin = enemy.x;
+      enemy.hp += hpBonus;
       enemies.push(enemy);
     }
     shurikens = [];
@@ -676,7 +713,10 @@
     deathEchoes = [];
     stageClearTimer = 0;
     backgroundCache = createBackgroundCache();
-    notify('忍務', stage === 5 ? '天守の敵将を討ち、奥の門へ' : '敵兵を全て討ち、上階の扉へ', 130);
+    const missionText = stage === 5
+      ? '天守決戦。八人の守備を破り、奥義で門を開け'
+      : `${enemies.length}人の守備を下層から崩し、門前の敵を討て`;
+    notify('忍務', missionText, 145);
     updateHud();
   }
 
@@ -1014,11 +1054,12 @@
     sound.tone('door');
     currentStage = 1;
     score = 0;
+    ninTipShown = false;
     state = 'playing';
     paused = false;
     overlay.classList.add('hidden');
     buildStage(1, false);
-    notify('操作', 'A斬る・B跳ぶ・X手裏剣・Y火遁・▼隠れ身', 170);
+    notify('忍力', '刀の命中・刀での撃破で溜まる。Yで忍術発動', 190);
     lastTime = performance.now();
   }
 

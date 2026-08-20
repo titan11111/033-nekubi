@@ -2,14 +2,14 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#080b0d">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="format-detection" content="telephone=no">
   <meta property="og:title" content="影ノ城・忍殺行">
-  <meta property="og:description" content="斬撃・手裏剣・隠れ身を駆使して城を駆け上がる忍者アクション">
+  <meta property="og:description" content="眠る殿の首を掻くため、五層の城を影で駆け上がる忍者アクション">
   <meta property="og:url" content="https://titan11111.github.io/033-nekubi/">
   <meta property="og:type" content="website">
   <title>影ノ城・忍殺行</title>
@@ -17,68 +17,127 @@
 </head>
 <body>
   <main id="game-shell">
-    <section id="action-panel" aria-label="アクション画面">
-      <div id="overlay">
-        <p class="seal">極秘</p>
-        <h1 id="title">影ノ城</h1>
-        <p id="mission">敵兵ヲ退ケ、最上階ノ敵将ヲ討テ</p>
-        <button id="startBtn" type="button">忍務開始</button>
-        <p class="start-guide">斬って忍力を溜め、火・水・雷の術を放て</p>
+    <section id="game-view" aria-label="アクション画面">
+      <div id="title-screen" class="screen-layer">
+        <div class="title-art" aria-hidden="true">
+          <div class="moon"></div>
+          <div class="keep"></div>
+          <span class="ninja-mark">忍</span>
+        </div>
+        <div class="title-copy">
+          <span class="seal">密</span>
+          <p class="overline">SHADOW ASSASSIN</p>
+          <h1>影ノ城</h1>
+          <p class="title-sub">闇夜に黄色い月。雲が面を隠す間に忍び、<br>眠る殿の首を掻け。</p>
+          <button id="startBtn" class="primary-button game-btn" type="button">忍務開始</button>
+          <div class="title-meta">
+            <span>最高戦果 <b id="highScoreText">000000</b></span>
+            <button id="techBtn" class="game-btn" type="button">実装技術</button>
+          </div>
+        </div>
       </div>
-      <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+      <canvas id="gameCanvas" width="1280" height="720" aria-label="ゲーム画面"></canvas>
+
       <div id="hud">
-        <span id="stageLabel">壱ノ階</span>
-        <span id="lifeLabel">命 ●●●</span>
-        <span id="weaponLabel">手裏剣 × 06</span>
-        <span id="jutsuLabel">忍力 火遁 000%</span>
-        <button id="muteBtn" class="utility-btn" type="button" aria-label="音を消す">音</button>
+        <div class="hud-block stage-block">
+          <span class="eyebrow">階層</span>
+          <strong id="stageNumber">第一層</strong>
+          <span id="stageName">荒野と城の入口</span>
+        </div>
+        <div class="hud-block meters">
+          <div class="meter-row">
+            <span>命</span>
+            <i id="healthMeter"><b></b></i>
+            <em id="healthText">4</em>
+          </div>
+          <div class="meter-row shadow">
+            <span>影</span>
+            <i id="shadowMeter"><b></b></i>
+            <em id="shadowText">100</em>
+          </div>
+        </div>
+        <div class="hud-block mission-block">
+          <span class="eyebrow">任務</span>
+          <strong id="objectiveText">密書を奪還せよ</strong>
+          <span id="objectiveCount">0 / 2　手裏剣 7</span>
+        </div>
+        <button id="muteBtn" class="utility-button game-btn" type="button" aria-label="音を消す">音</button>
+        <button id="fullscreenBtn" class="utility-button game-btn" type="button" aria-label="全画面">全</button>
       </div>
-      <div id="unified-alert" role="status" aria-live="polite">
-        <strong id="alert-title">忍務</strong>
-        <span id="alert-text">敵を討ち、光る扉へ向かえ</span>
+
+      <nav id="stage-route" aria-label="階層">
+        <div class="route-node current"><b>1</b><small>荒野</small></div><i></i>
+        <div class="route-node"><b>2</b><small>兵舎</small></div><i></i>
+        <div class="route-node"><b>3</b><small>石垣</small></div><i></i>
+        <div class="route-node"><b>4</b><small>御殿</small></div><i></i>
+        <div class="route-node"><b>5</b><small>天守</small></div>
+      </nav>
+
+      <div id="notice" role="status" aria-live="polite">
+        <strong id="noticeKicker">任務</strong>
+        <span id="noticeText">影に入れ</span>
       </div>
-      <div id="combo" aria-hidden="true"></div>
+
+      <div id="alert-vane">
+        <span>警戒</span>
+        <i><b id="alertFill"></b></i>
+        <em id="alertText">平静</em>
+      </div>
+
+      <button id="pauseBtn" class="pause-button game-btn" type="button" aria-label="一時停止">止</button>
+
+      <div id="pause-layer" class="hidden">
+        <strong>静止</strong>
+        <span>画面を触れて再開</span>
+      </div>
+
+      <div id="result-screen" class="screen-layer hidden">
+        <div class="result-card">
+          <p class="overline" id="resultKicker">LAYER COMPLETE</p>
+          <h2 id="resultTitle">突破</h2>
+          <p id="resultBody">次の階層へ進め。</p>
+          <div class="result-stats">
+            <span>戦果 <b id="resultScore">000000</b></span>
+            <span>連撃 <b id="resultCombo">0</b></span>
+          </div>
+          <button id="nextBtn" class="primary-button game-btn" type="button">次の階層へ</button>
+        </div>
+      </div>
+
+      <aside id="tech-panel" aria-hidden="true">
+        <div class="tech-head">
+          <div>
+            <span>WEB TECH</span>
+            <h2>実装した技術</h2>
+          </div>
+          <button id="techClose" class="game-btn" type="button" aria-label="閉じる">×</button>
+        </div>
+        <ol id="techList"></ol>
+      </aside>
     </section>
 
-    <section id="control-panel" aria-label="スーパーファミコン型操作盤">
-      <div class="controller-grip left-grip">
-        <div id="dpad" aria-label="方向キー">
-          <button id="btn-up" class="pad-btn up" type="button" aria-label="上・扉に入る">▲</button>
-          <button id="btn-left" class="pad-btn left" type="button" aria-label="左へ移動">◀</button>
-          <span class="pad-center"></span>
-          <button id="btn-right" class="pad-btn right" type="button" aria-label="右へ移動">▶</button>
-          <button id="btn-down" class="pad-btn down" type="button" aria-label="隠れ身">▼</button>
-        </div>
+    <section id="controls" aria-label="操作盤">
+      <p class="control-text"><b>操作</b>十字で移動　下で隠れ身</p>
+      <div class="dpad">
+        <button id="btn-left" class="game-btn" type="button" aria-label="左へ移動">◀<small>左</small></button>
+        <button id="btn-down" class="game-btn" type="button" aria-label="隠れ身">▼<small>隠</small></button>
+        <button id="btn-right" class="game-btn" type="button" aria-label="右へ移動">▶<small>右</small></button>
       </div>
-
-      <div id="center-controls">
-        <button id="selectBtn" class="pill-btn" type="button">SELECT<small>忍術切替</small></button>
-        <button id="startPauseBtn" class="pill-btn" type="button">START<small>停止</small></button>
+      <div class="center-controls">
+        <button id="btn-dash" class="game-btn" type="button" aria-label="影走り"><b>Y</b><small>影走</small></button>
       </div>
-
-      <div class="controller-grip right-grip">
-        <div id="actions" aria-label="アクションボタン">
-          <button id="btn-x" class="action-btn x-btn" type="button"><b>X</b><small>手裏剣</small></button>
-          <button id="btn-y" class="action-btn y-btn" type="button"><b>Y</b><small>忍術</small></button>
-          <button id="btn-a" class="action-btn a-btn" type="button"><b>A</b><small>斬る</small></button>
-          <button id="btn-b" class="action-btn b-btn" type="button"><b>B</b><small>跳ぶ</small></button>
-        </div>
+      <div class="action-buttons">
+        <button id="btn-slash" class="action-a game-btn" type="button"><b>A</b><small>斬</small></button>
+        <button id="btn-jump" class="action-b game-btn" type="button"><b>B</b><small>跳</small></button>
+        <button id="btn-throw" class="action-x game-btn" type="button"><b>X</b><small>手裏剣</small></button>
       </div>
+      <p class="keyboard-help">←→ 移動　↓隠　Space跳　Z斬　X手裏剣　Shift影走　P停止</p>
     </section>
   </main>
 
-  <svg class="svg-defs" aria-hidden="true">
-    <defs>
-      <filter id="ink-rough">
-        <feTurbulence type="fractalNoise" baseFrequency=".025" numOctaves="2" seed="8" result="noise"/>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="5"/>
-      </filter>
-      <symbol id="shuriken-mark" viewBox="-20 -20 40 40">
-        <path d="M0-19 5-5 19 0 5 5 0 19-5 5-19 0-5-5Z" fill="currentColor"/>
-        <circle r="3.5" fill="#15171b"/>
-      </symbol>
-    </defs>
-  </svg>
+  <audio id="stealthBgm" src="audio/kokoro-game.mp3" loop preload="auto"></audio>
+  <audio id="battleBgm" src="audio/nekugi-game.mp3" loop preload="auto"></audio>
   <script src="script.js"></script>
 </body>
 </html>

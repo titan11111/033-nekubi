@@ -76,7 +76,7 @@
 
       <div id="notice" role="status" aria-live="polite">
         <strong id="noticeKicker">任務</strong>
-        <span id="noticeText">影に入れ</span>
+        <span id="noticeText">敵に気づかれる前に、影の中へ隠れてください。</span>
       </div>
 
       <div id="alert-vane">
@@ -117,27 +117,31 @@
       </aside>
     </section>
 
-    <section id="controls" aria-label="操作盤">
-      <p class="control-text"><b>操作</b>十字で移動　下で隠れ身</p>
-      <div class="dpad">
-        <button id="btn-left" class="game-btn" type="button" aria-label="左へ移動">◀<small>左</small></button>
-        <button id="btn-down" class="game-btn" type="button" aria-label="隠れ身">▼<small>隠</small></button>
-        <button id="btn-right" class="game-btn" type="button" aria-label="右へ移動">▶<small>右</small></button>
+    <section id="controls" aria-label="スーパーファミコン型操作盤">
+      <div class="dpad" aria-label="十字キー">
+        <button id="btn-up" class="pad-up game-btn" type="button" aria-label="上・跳躍">▲<small>上</small></button>
+        <button id="btn-left" class="pad-left game-btn" type="button" aria-label="左へ移動">◀<small>左</small></button>
+        <span class="pad-hub" aria-hidden="true"></span>
+        <button id="btn-right" class="pad-right game-btn" type="button" aria-label="右へ移動">▶<small>右</small></button>
+        <button id="btn-down" class="pad-down game-btn" type="button" aria-label="隠れ身">▼<small>隠</small></button>
       </div>
       <div class="center-controls">
-        <button id="btn-dash" class="game-btn" type="button" aria-label="影走り"><b>Y</b><small>影走</small></button>
+        <button id="selectBtn" class="pill-btn game-btn" type="button" aria-label="消音">SELECT<small>消音</small></button>
+        <button id="startPauseBtn" class="pill-btn game-btn" type="button" aria-label="一時停止">START<small>停止</small></button>
       </div>
-      <div class="action-buttons">
-        <button id="btn-slash" class="action-a game-btn" type="button"><b>A</b><small>斬</small></button>
-        <button id="btn-jump" class="action-b game-btn" type="button"><b>B</b><small>跳</small></button>
-        <button id="btn-throw" class="action-x game-btn" type="button"><b>X</b><small>手裏剣</small></button>
+      <div class="action-buttons" aria-label="面ボタン">
+        <button id="btn-throw" class="action-x game-btn" type="button" aria-label="手裏剣"><b>X</b><small>手裏剣</small></button>
+        <button id="btn-dash" class="action-y game-btn" type="button" aria-label="影走り"><b>Y</b><small>影走</small></button>
+        <button id="btn-slash" class="action-a game-btn" type="button" aria-label="斬撃"><b>A</b><small>斬</small></button>
+        <button id="btn-jump" class="action-b game-btn" type="button" aria-label="跳躍"><b>B</b><small>跳</small></button>
       </div>
-      <p class="keyboard-help">←→ 移動　↓隠　Space跳　Z斬　X手裏剣　Shift影走　P停止</p>
+      <p class="keyboard-help">十字移動　↓隠　↑/B跳　A斬　X手裏剣　Y影走　START停止</p>
     </section>
   </main>
 
   <audio id="stealthBgm" src="audio/kokoro-game.mp3" loop preload="auto"></audio>
   <audio id="battleBgm" src="audio/nekugi-game.mp3" loop preload="auto"></audio>
+  <script src="config.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

@@ -25,7 +25,7 @@
   const battleBgm = $('battleBgm');
 
   const WORLD_H = 720;
-  const WORLD_W = 1960;
+  let WORLD_W = 3920;
   const GRAVITY = 1520;
   const STEP = 1 / 120;
   const MAX_STEP_ACCUMULATOR = .1;
@@ -55,6 +55,7 @@
   let totalTime = 0;
   let alertLevel = 0;
   let alertPulse = 0;
+  let spottedThisStep = false;
   let score = 0;
   let stageScoreStart = 0;
   let maxCombo = 0;
@@ -79,49 +80,7 @@
     }
   })();
 
-  const STAGES = [
-    {
-      short: '第一層', name: '荒野と城の入口', goal: '密書を奪還せよ', intro: '入門：枯草に身を伏せ、二巻の密書を奪い城門へ。', objectiveType: '密書', objectiveTotal: 2,
-      assist: { vision:.68, alert:.5, enemySpeed:.7, dashCost:16, shadowRegen:1.35, invincible:1.65, ammo:10 },
-      palette: { skyA: '#151b22', skyB: '#8c3e2a', horizon: '#d07a3b', ink: '#111416', ground: '#2a211b', edge: '#b56d35', accent: '#e2b966' },
-      platforms: [[0,646,1960,74],[175,540,320,24],[515,454,235,22],[770,562,290,24],[1080,470,250,22],[1355,390,255,22],[1625,535,250,25]],
-      enemies: [{x:350,p:1,type:'guard',sleeping:true},{x:900,p:3,type:'scout'},{x:1720,p:6,type:'archer'}],
-      objectives: [{x:615,p:2,type:'scroll'},{x:1485,p:5,type:'scroll'}],
-      shadows: [[35,540,320,106],[810,548,285,98],[1460,525,245,121]], hazards: [], exit: {x:1860,p:0}
-    },
-    {
-      short: '第二層', name: '城内・兵士待機所', goal: '火鉢を消せ', intro: '兵が目覚める前に、三つの火を落として警備を崩せ。', objectiveType: '火鉢', objectiveTotal: 3,
-      palette: { skyA: '#11100f', skyB: '#38241b', horizon: '#9d5c2c', ink: '#0c0d0d', ground: '#2b211b', edge: '#c0843e', accent: '#f0a547' },
-      platforms: [[0,646,1960,74],[185,535,280,22],[530,427,260,24],[835,547,245,22],[1140,445,245,23],[1440,342,210,22],[1675,530,230,25]],
-      enemies: [{x:260,p:1,type:'guard',sleeping:true},{x:600,p:2,type:'guard',sleeping:true},{x:930,p:3,type:'scout'},{x:1220,p:4,type:'archer'},{x:1510,p:5,type:'samurai'},{x:1745,p:6,type:'guard'}],
-      objectives: [{x:390,p:1,type:'brazier'},{x:700,p:2,type:'brazier'},{x:1545,p:5,type:'brazier'}],
-      shadows: [[20,535,175,111],[795,545,130,101],[1355,535,155,111]], hazards: [[1085,55,'bell'],[1645,42,'bell']], exit: {x:1870,p:0}
-    },
-    {
-      short: '第三層', name: '城中腹・石垣回廊', goal: '封印を解除せよ', intro: '湿った石垣を登り、三つの封印を斬って上へ。', objectiveType: '封印', objectiveTotal: 3,
-      palette: { skyA: '#071514', skyB: '#17423a', horizon: '#467d68', ink: '#07100f', ground: '#263531', edge: '#68a087', accent: '#94d8b2' },
-      platforms: [[0,646,1960,74],[145,548,230,22],[420,448,220,22],[685,346,205,22],[925,474,230,22],[1205,365,220,22],[1470,262,205,22],[1710,435,225,24]],
-      enemies: [{x:230,p:1,type:'scout'},{x:500,p:2,type:'archer'},{x:755,p:3,type:'guard'},{x:1020,p:4,type:'samurai'},{x:1300,p:5,type:'archer'},{x:1540,p:6,type:'samurai'},{x:1780,p:7,type:'guard'}],
-      objectives: [{x:550,p:2,type:'seal'},{x:1285,p:5,type:'seal'},{x:1555,p:6,type:'seal'}],
-      shadows: [[30,548,120,98],[870,545,150,101],[1610,535,145,111]], hazards: [[385,42,'water'],[655,55,'water'],[1155,70,'water']], exit: {x:1880,p:0}
-    },
-    {
-      short: '第四層', name: '最上階・月影御殿', goal: '結界柱を断て', intro: '開閉する障子と矢の間を読み、四本の結界柱を破壊せよ。', objectiveType: '結界', objectiveTotal: 4,
-      palette: { skyA: '#140e18', skyB: '#472238', horizon: '#a64a5f', ink: '#0d0b10', ground: '#2c2028', edge: '#bb6d88', accent: '#ffc0d1' },
-      platforms: [[0,646,1960,74],[160,528,240,22],[455,407,205,22],[710,542,230,23],[985,414,210,22],[1245,532,230,23],[1515,395,210,22],[1740,535,190,24]],
-      enemies: [{x:250,p:1,type:'archer'},{x:530,p:2,type:'samurai'},{x:795,p:3,type:'scout'},{x:1055,p:4,type:'archer'},{x:1325,p:5,type:'samurai'},{x:1580,p:6,type:'guard'},{x:1780,p:7,type:'archer'}],
-      objectives: [{x:345,p:1,type:'ward'},{x:570,p:2,type:'ward'},{x:1335,p:5,type:'ward'},{x:1590,p:6,type:'ward'}],
-      shadows: [[25,545,135,101],[640,545,100,101],[1165,545,115,101]], hazards: [[405,45,'spikes'],[945,40,'spikes'],[1480,40,'spikes']], gates: [680,1215,1700], exit: {x:1880,p:0}
-    },
-    {
-      short: '第五層', name: '天守閣の外・暁天', goal: '眠る殿の首を掻け', intro: '屋根上の寝所。影から近づき、眠る殿の首を掻け。', objectiveType: '城主', objectiveTotal: 1,
-      assist: { vision:.72, alert:.42, enemySpeed:.62, dashCost:16, shadowRegen:1.25, invincible:1.55, ammo:8 },
-      palette: { skyA: '#11182b', skyB: '#b64d38', horizon: '#f2a04d', ink: '#080b10', ground: '#242326', edge: '#e0a750', accent: '#ffd17a' },
-      platforms: [[0,646,1960,74],[145,530,235,24],[430,418,230,23],[715,535,230,24],[990,397,235,24],[1280,518,230,24],[1570,420,325,26]],
-      enemies: [{x:230,p:1,type:'guard',sleeping:true},{x:505,p:2,type:'archer'},{x:800,p:3,type:'scout'},{x:1360,p:5,type:'samurai',sleeping:true},{x:1730,p:6,type:'boss',sleeping:true}],
-      objectives: [], shadows: [[15,545,130,101],[650,545,110,101],[1215,545,110,101]], hazards: [[385,44,'spikes'],[955,40,'spikes'],[1515,50,'spikes']], exit: {x:1880,p:0}
-    }
-  ];
+  const STAGES = window.NEKUBI_STAGES;
 
   const TECH = [
     ['HiDPI Canvas 2D', '端末の画素密度へ合わせ、輪郭と文字を鮮明に描画。', () => true],
@@ -142,6 +101,7 @@
       this.master = null;
       this.muted = !!saved.muted;
       this.current = null;
+      this.buzzer = null;
       stealthBgm.loop = true;
       battleBgm.loop = true;
       stealthBgm.volume = .34;
@@ -159,6 +119,16 @@
         this.master.connect(this.context.destination);
       }
       if (this.context.state === 'suspended') this.context.resume().catch(() => {});
+      if (!this.silentPlayed) {
+        this.silentPlayed = true;
+        try {
+          const buffer = this.context.createBuffer(1, 1, 22050);
+          const source = this.context.createBufferSource();
+          source.buffer = buffer;
+          source.connect(this.context.destination);
+          source.start(0);
+        } catch (_) {}
+      }
     }
 
     tone(type) {
@@ -172,7 +142,8 @@
         hit: [155, 42, .16, 'square', .12], hurt: [95, 34, .27, 'sawtooth', .16],
         throw: [920, 410, .08, 'triangle', .07], collect: [420, 920, .2, 'sine', .09],
         dash: [110, 260, .13, 'sawtooth', .08], alert: [270, 510, .25, 'square', .07],
-        clear: [330, 880, .48, 'triangle', .11], empty: [110, 80, .08, 'square', .04]
+        clear: [330, 880, .48, 'triangle', .11], empty: [110, 80, .08, 'square', .04],
+        tap: [240, 170, .045, 'square', .035]
       }[type] || [220, 180, .1, 'sine', .06];
       const osc = ac.createOscillator();
       const gain = ac.createGain();
@@ -204,7 +175,50 @@
       next.play().catch(() => {});
     }
 
-    pause() { stealthBgm.pause(); battleBgm.pause(); }
+    startBuzzer() {
+      if (this.muted || this.buzzer) return;
+      this.unlock();
+      if (!this.context) return;
+      const ac = this.context;
+      const osc = ac.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = 1080;
+      const lfo = ac.createOscillator();
+      lfo.type = 'square';
+      lfo.frequency.value = 9;
+      const depth = ac.createGain();
+      depth.gain.value = .12;
+      const vol = ac.createGain();
+      vol.gain.value = .12;
+      lfo.connect(depth);
+      depth.connect(vol.gain);
+      osc.connect(vol).connect(this.master || ac.destination);
+      osc.start();
+      lfo.start();
+      this.buzzer = { osc, lfo, vol, depth };
+    }
+
+    stopBuzzer() {
+      if (!this.buzzer) return;
+      const { osc, lfo, vol, depth } = this.buzzer;
+      this.buzzer = null;
+      try {
+        lfo.disconnect();
+        depth.disconnect();
+        const t = this.context.currentTime;
+        vol.gain.cancelScheduledValues(t);
+        vol.gain.setValueAtTime(.0001, t);
+        osc.stop(t + .04);
+        lfo.stop(t + .04);
+      } catch (_) {}
+    }
+
+    setBuzzer(on) {
+      if (on && !this.muted && state === 'playing' && !paused) this.startBuzzer();
+      else this.stopBuzzer();
+    }
+
+    pause() { stealthBgm.pause(); battleBgm.pause(); this.stopBuzzer(); }
     resume() { if (!this.muted && this.current && state === 'playing') this.play(this.current); }
 
     syncScene() {
@@ -353,7 +367,7 @@
       if (this.ammo <= 0) { audio.tone('empty'); showNotice('武具', '手裏剣が尽きた。斬撃で道を開け。'); return; }
       this.ammo -= 1;
       this.attackCooldown = .2;
-      projectiles.push({ owner: 'player', x: this.x + this.w / 2, y: this.y + 18, vx: this.facing * 720, vy: 0, r: 7, life: 1.5, rotation: 0 });
+      projectiles.push({ owner: 'player', x: this.x + this.w / 2, y: this.y + 18, vx: this.facing * 720, vy: 0, r: 10.5, life: 1.5, rotation: 0 });
       audio.tone('throw');
     }
 
@@ -406,7 +420,7 @@
     draw() {
       for (const trail of this.trail) drawNinja(trail.x, trail.y, this.facing, clamp(trail.life / .28, 0, .48), false);
       if (this.invincible > 0 && Math.floor(this.invincible * 16) % 2) return;
-      drawNinja(this.x, this.y, this.facing, this.hidden ? .32 : 1, this.attack > 0);
+      drawNinja(this.x, this.y, this.facing, this.hidden ? .62 : 1, this.attack > 0);
     }
   }
 
@@ -421,7 +435,7 @@
       x: spec.x, y: p.y - size[1], w: size[0], h: size[1], type, platform: spec.p,
       origin: spec.x, range: Math.min(type === 'scout' ? 180 : 140, p.w * .42), facing: index % 2 ? 1 : -1,
       hp, maxHp: hp, vy: 0, grounded: true,
-      alerted: false, sleeping: !!spec.sleeping, dead: false, hit: 0, attackCooldown: .5 + index * .1,
+      alerted: false, sleeping: !!spec.sleeping, deepSleep: !!spec.deepSleep, dead: false, hit: 0, attackCooldown: .5 + index * .1,
       shootCooldown: 1.4 + index * .13, vx: 0, snore: index * .7
     };
   }
@@ -471,6 +485,7 @@
     const vision = (e.type === 'boss' ? 210 : e.type === 'archer' ? 360 : e.type === 'scout' ? 300 : 230) * visionScale;
     const facingPlayer = dx * e.facing > -25;
     const sees = !player.hidden && player.dash <= 0 && facingPlayer && Math.abs(dx) < vision && dy < 95;
+    if (sees) spottedThisStep = true;
 
     if (e.type === 'boss' && e.sleeping) {
       const close = Math.abs(dx) < 64 && dy < 46 && !player.hidden;
@@ -478,11 +493,25 @@
         e.sleeping = false;
         e.alerted = true;
         alertPulse = .5;
-        audio.tone('alert');
+        spottedThisStep = true;
         showNotice('覚醒', '殿が目を覚ました。');
         audio.syncScene();
       } else {
         landEnemy(e, oldY, dt);
+        return;
+      }
+    }
+
+    if (e.sleeping && e.deepSleep && e.type !== 'boss') {
+      landEnemy(e, oldY, dt);
+      if (overlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h) && !player.hidden) {
+        e.sleeping = false;
+        e.alerted = true;
+        alertPulse = .4;
+        spottedThisStep = true;
+        showNotice('覚醒', '寝入っていた兵が目を覚ました。');
+        audio.syncScene();
+      } else {
         return;
       }
     }
@@ -492,7 +521,7 @@
       return;
     }
     if (sees || alertLevel > 76) {
-      if (!e.alerted) { e.alerted = true; alertPulse = .4; audio.tone('alert'); audio.syncScene(); }
+      if (!e.alerted) { e.alerted = true; alertPulse = .4; audio.syncScene(); }
       e.sleeping = false;
       const alertScale = stage.assist?.alert || 1;
       alertLevel = clamp(alertLevel + (e.type === 'boss' ? 10 : 18) * alertScale * dt, 0, 100);
@@ -564,6 +593,7 @@
   function setupStage(index) {
     stageIndex = index;
     stage = STAGES[index];
+    WORLD_W = stage.platforms[0][2];
     platforms = stage.platforms.map((p) => ({ x:p[0], y:p[1], w:p[2], h:p[3] }));
     enemies = stage.enemies.map(buildEnemy);
     objectives = stage.objectives.map((o, i) => {
@@ -580,6 +610,8 @@
     combo = 0;
     comboTimer = 0;
     stageScoreStart = score;
+    spottedThisStep = false;
+    audio.stopBuzzer();
     state = 'playing';
     paused = false;
     pauseLayer.classList.add('hidden');
@@ -592,6 +624,7 @@
 
   function prepareTitleStage() {
     stage = STAGES[0];
+    WORLD_W = stage.platforms[0][2];
     platforms = stage.platforms.map((p) => ({ x:p[0], y:p[1], w:p[2], h:p[3] }));
     enemies = stage.enemies.map(buildEnemy);
     objectives = stage.objectives.map((o, i) => {
@@ -706,8 +739,10 @@
     if (state !== 'playing' || paused) return;
     totalTime += dt;
     stageTime += dt;
+    spottedThisStep = false;
     player.update(dt);
     enemies.forEach((e) => updateEnemy(e, dt));
+    audio.setBuzzer(spottedThisStep);
     updateProjectiles(dt);
     updateObjectives();
     updateParticles(dt);
@@ -829,14 +864,17 @@
   }
 
   function drawWilderness(sw) {
-    ctx.fillStyle='rgba(18,22,24,.72)';
+    ctx.fillStyle='rgba(12,16,22,.82)';
     mountainRange(sw, 365, 80, .07);
-    ctx.fillStyle='#101416';
+    ctx.fillStyle='#0a1016';
     mountainRange(sw, 465, 120, .13);
-    ctx.fillStyle='#090c0d';
     const castleX=sw*.7-cameraX*.09;
     drawCastleSilhouette(castleX,245,320,320);
-    ctx.fillStyle='rgba(188,105,50,.28)';
+    const haze=ctx.createLinearGradient(0,470,0,WORLD_H);
+    haze.addColorStop(0,'transparent');
+    haze.addColorStop(1,'rgba(210,140,58,.22)');
+    ctx.fillStyle=haze;ctx.fillRect(0,470,sw,WORLD_H-470);
+    ctx.fillStyle='rgba(214,132,58,.55)';
     for(let x=-40;x<sw+60;x+=26){const h=28+((x*13)%47+47)%47;ctx.fillRect(x,620-h,3,h);ctx.beginPath();ctx.moveTo(x+2,620-h*.6);ctx.lineTo(x-10,620-h);ctx.lineTo(x+2,620-h*.8);ctx.fill();}
   }
 
@@ -900,8 +938,8 @@
 
   function drawShadows() {
     for (const s of stage.shadows) {
-      const g=ctx.createLinearGradient(s[0],0,s[0]+s[2],0);g.addColorStop(0,'transparent');g.addColorStop(.2,'rgba(3,8,9,.72)');g.addColorStop(.8,'rgba(3,8,9,.72)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(s[0],s[1],s[2],s[3]);
-      ctx.fillStyle='rgba(120,190,154,.22)';for(let x=s[0]+8;x<s[0]+s[2];x+=13){const h=18+(x*7)%20;ctx.fillRect(x,s[1]+s[3]-h,2,h);}
+      const g=ctx.createLinearGradient(s[0],0,s[0]+s[2],0);g.addColorStop(0,'transparent');g.addColorStop(.2,'rgba(3,8,9,.48)');g.addColorStop(.8,'rgba(3,8,9,.48)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(s[0],s[1],s[2],s[3]);
+      ctx.fillStyle='rgba(150,210,170,.38)';for(let x=s[0]+8;x<s[0]+s[2];x+=13){const h=18+(x*7)%20;ctx.fillRect(x,s[1]+s[3]-h,2,h);}
     }
   }
 
@@ -909,7 +947,8 @@
     for (const p of platforms) {
       ctx.fillStyle=stage.palette.ground;roundRect(p.x,p.y,p.w,p.h,5);ctx.fill();
       if(textureCanvas){ctx.save();ctx.globalAlpha=.13;ctx.beginPath();ctx.rect(p.x,p.y,p.w,p.h);ctx.clip();const pattern=ctx.createPattern(textureCanvas,'repeat');ctx.fillStyle=pattern;ctx.fillRect(p.x,p.y,p.w,p.h);ctx.restore();}
-      ctx.fillStyle=stage.palette.edge;ctx.globalAlpha=.68;ctx.fillRect(p.x,p.y,p.w,3);ctx.globalAlpha=1;
+      ctx.strokeStyle='rgba(18,12,8,.7)';ctx.lineWidth=2;roundRect(p.x,p.y,p.w,p.h,5);ctx.stroke();
+      ctx.fillStyle=stage.palette.edge;ctx.globalAlpha=.92;ctx.fillRect(p.x,p.y,p.w,4);ctx.globalAlpha=1;
       if(stageIndex===4){ctx.strokeStyle='rgba(221,169,78,.26)';ctx.lineWidth=3;for(let x=p.x+16;x<p.x+p.w;x+=38){ctx.beginPath();ctx.moveTo(x,p.y+4);ctx.lineTo(x+18,p.y+p.h);ctx.stroke();}}
     }
   }
@@ -954,6 +993,29 @@
     ctx.restore();
   }
 
+  function drawSnore(e, heavy) {
+    const t = e.snore;
+    ctx.save();
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f6e4a4';
+    ctx.globalAlpha = .55 + .45 * Math.sin(t * 2.4);
+    if (heavy) {
+      ctx.font = '800 18px serif';
+      ctx.fillText('ぐー', e.w + 10, 2 + Math.sin(t * 2) * 5);
+      ctx.font = '700 14px serif';
+      ctx.globalAlpha = .45 + .4 * Math.sin(t * 2.4 + 1);
+      ctx.fillText('ぐー', e.w + 28, -16 + Math.sin(t * 2 + .7) * 4);
+      ctx.font = '800 20px serif';
+      ctx.globalAlpha = .5 + .4 * Math.sin(t * 1.8 + 1.4);
+      ctx.fillText('Z', e.w + 8, -34 + Math.sin(t * 1.7) * 3);
+    } else {
+      ctx.font = '700 13px serif';
+      ctx.fillText('Z', e.w + 4, -4 + Math.sin(t * 2) * 3);
+      ctx.fillText('z', e.w + 14, -16 + Math.sin(t * 2 + .6) * 3);
+    }
+    ctx.restore();
+  }
+
   function drawEnemy(e) {
     if(e.dead) {ctx.globalAlpha=.18;ctx.fillStyle='#07100f';ctx.fillRect(e.x,e.y+e.h-8,e.w,8);ctx.globalAlpha=1;return;}
     const accent=e.type==='boss'?'#e7b24c':e.type==='samurai'?'#a13c32':e.type==='archer'?'#536c68':e.type==='scout'?'#7a8f4a':'#66706d';
@@ -968,21 +1030,29 @@
       ctx.fillStyle='#111517';roundRect(e.sleeping?e.w-22:4,e.sleeping?e.h-42:0,22,22,8);ctx.fill();
       ctx.fillStyle=accent;ctx.fillRect(e.sleeping?e.w-18:8,e.sleeping?e.h-36:8,14,6);
       ctx.fillStyle='#e8d5ac';ctx.fillRect(e.facing>0?e.w-8:6,e.sleeping?e.h-32:12,4,3);
-      if(e.sleeping){
-        ctx.fillStyle='#e2c78a';ctx.font='700 13px serif';
-        ctx.globalAlpha=.7+.3*Math.sin(e.snore*3);
-        ctx.fillText('Z',e.w+6,8+Math.sin(e.snore*2)*3);
-        ctx.fillText('z',e.w+16,-4+Math.sin(e.snore*2+.6)*3);
-      } else {
+      if(e.sleeping) drawSnore(e, true);
+      else {
         ctx.fillStyle=accent;ctx.beginPath();ctx.moveTo(2,9);ctx.lineTo(e.w*.3,-5);ctx.lineTo(e.w*.5,7);ctx.lineTo(e.w*.75,-5);ctx.lineTo(e.w-2,9);ctx.fill();
       }
+    } else if(e.sleeping){
+      ctx.fillStyle='#4a322c';roundRect(-8,e.h-14,e.w+26,16,5);ctx.fill();
+      ctx.fillStyle='#3a4c56';roundRect(0,e.h-26,e.w+12,14,6);ctx.fill();
+      ctx.strokeStyle='#f0d090';ctx.lineWidth=2;roundRect(0,e.h-26,e.w+12,14,6);ctx.stroke();
+      ctx.fillStyle=accent;ctx.fillRect(8,e.h-24,e.w-4,6);
+      ctx.fillStyle='#e8d5ac';roundRect(e.w-2,e.h-36,20,20,8);ctx.fill();
+      ctx.fillStyle='#fff6d2';ctx.fillRect(e.w+8,e.h-28,5,4);
+      drawSnore(e, !!e.deepSleep);
     } else {
-      ctx.fillStyle='#111517';roundRect(0,8,e.w,e.h-8,7);ctx.fill();ctx.fillStyle=accent;ctx.fillRect(4,15,e.w-8,8);
-      ctx.fillStyle='#e8d5ac';ctx.fillRect(e.facing>0?e.w-11:7,19,4,3);
-      if(e.type==='archer'){ctx.strokeStyle='#b99b68';ctx.lineWidth=3;ctx.beginPath();ctx.arc(e.facing>0?e.w+5:-5,27,15,-1.3,1.3);ctx.stroke();}
+      ctx.fillStyle='#3a4c56';roundRect(0,8,e.w,e.h-8,7);ctx.fill();
+      ctx.strokeStyle='#f0d090';ctx.lineWidth=2;roundRect(0,8,e.w,e.h-8,7);ctx.stroke();
+      ctx.fillStyle=accent;ctx.fillRect(4,15,e.w-8,9);
+      ctx.fillStyle='#fff6d2';ctx.fillRect(e.facing>0?e.w-12:7,18,5,4);
+      const lx=e.facing>0?e.w+5:-5;
+      ctx.fillStyle='rgba(255,196,64,.35)';ctx.beginPath();ctx.arc(lx,30,11,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ffd056';ctx.beginPath();ctx.arc(lx,30,4,0,Math.PI*2);ctx.fill();
+      if(e.type==='archer'){ctx.strokeStyle='#e8c478';ctx.lineWidth=3;ctx.beginPath();ctx.arc(e.facing>0?e.w+5:-5,27,15,-1.3,1.3);ctx.stroke();}
       if(e.type==='samurai'){ctx.fillStyle=accent;ctx.beginPath();ctx.moveTo(2,9);ctx.lineTo(e.w*.3,-5);ctx.lineTo(e.w*.5,7);ctx.lineTo(e.w*.75,-5);ctx.lineTo(e.w-2,9);ctx.fill();}
-      if(e.type==='scout'){ctx.fillStyle='#c8d36a';ctx.beginPath();ctx.moveTo(e.w/2,4);ctx.lineTo(e.w/2+8,-8);ctx.lineTo(e.w/2-8,-8);ctx.closePath();ctx.fill();}
-      if(e.sleeping){ctx.fillStyle='#e2c78a';ctx.font='700 14px serif';ctx.fillText('眠',e.w/2-7,-7);}
+      if(e.type==='scout'){ctx.fillStyle='#dceb78';ctx.beginPath();ctx.moveTo(e.w/2,4);ctx.lineTo(e.w/2+8,-8);ctx.lineTo(e.w/2-8,-8);ctx.closePath();ctx.fill();}
     }
     ctx.restore();
     if(e.maxHp>2){ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(e.x,e.y-12,e.w,4);ctx.fillStyle=accent;ctx.fillRect(e.x,e.y-12,e.w*(e.hp/e.maxHp),4);}
@@ -990,17 +1060,19 @@
 
   function drawNinja(x,y,facing,alpha,attacking) {
     ctx.save();ctx.translate(x,y);ctx.globalAlpha=alpha;
-    ctx.fillStyle='#050809';roundRect(0,3,34,45,9);ctx.fill();
-    ctx.fillStyle='#151a1b';ctx.beginPath();ctx.arc(17,9,14,Math.PI,0);ctx.fill();
-    ctx.fillStyle=stage.palette.accent;ctx.fillRect(facing>0?20:9,10,5,3);
-    ctx.strokeStyle=stage.palette.accent;ctx.globalAlpha=alpha*.46;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(7,32);ctx.lineTo(-10*facing,47);ctx.stroke();
+    ctx.fillStyle='#1d2c36';roundRect(0,3,34,45,9);ctx.fill();
+    ctx.strokeStyle='#f2d36a';ctx.lineWidth=2;roundRect(0,3,34,45,9);ctx.stroke();
+    ctx.fillStyle='#c43a2c';ctx.fillRect(3,22,28,7);
+    ctx.fillStyle='#243844';ctx.beginPath();ctx.arc(17,9,14,Math.PI,0);ctx.fill();
+    ctx.fillStyle='#fff6c2';ctx.fillRect(facing>0?19:9,10,7,4);
+    ctx.strokeStyle=stage.palette.accent;ctx.globalAlpha=alpha*.85;ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(7,32);ctx.lineTo(-10*facing,47);ctx.stroke();
     if(attacking){ctx.globalAlpha=alpha;ctx.strokeStyle=stage.palette.accent;ctx.lineWidth=5;ctx.beginPath();const cx=facing>0?24:10;ctx.arc(cx,25,51,facing>0?-1.05:Math.PI-2.1,facing>0?1.05:Math.PI+2.1);ctx.stroke();}
     ctx.restore();
   }
 
   function drawProjectile(p) {
     ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rotation);ctx.fillStyle=p.owner==='player'?stage.palette.accent:'#de513c';
-    if(p.owner==='player'){ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(4,-3);ctx.lineTo(11,0);ctx.lineTo(4,3);ctx.lineTo(0,10);ctx.lineTo(-4,3);ctx.lineTo(-11,0);ctx.lineTo(-4,-3);ctx.closePath();ctx.fill();}
+    if(p.owner==='player'){ctx.scale(1.5,1.5);ctx.beginPath();ctx.moveTo(0,-10);ctx.lineTo(4,-3);ctx.lineTo(11,0);ctx.lineTo(4,3);ctx.lineTo(0,10);ctx.lineTo(-4,3);ctx.lineTo(-11,0);ctx.lineTo(-4,-3);ctx.closePath();ctx.fill();}
     else {ctx.shadowColor='#f44';ctx.shadowBlur=10;ctx.beginPath();ctx.arc(0,0,p.r,0,Math.PI*2);ctx.fill();}
     ctx.restore();
   }
@@ -1075,7 +1147,7 @@
 
   function bindPointer(id, codes) {
     const el=$(id);if(!el)return;
-    const down=(e)=>{e.preventDefault();audio.unlock();el.setPointerCapture?.(e.pointerId);codes.forEach((c)=>setInput(c,true));el.classList.add('is-pressed');};
+    const down=(e)=>{e.preventDefault();audio.unlock();if(navigator.vibrate)navigator.vibrate(15);audio.tone('tap');el.setPointerCapture?.(e.pointerId);codes.forEach((c)=>setInput(c,true));el.classList.add('is-pressed');};
     const up=(e)=>{e.preventDefault();codes.forEach((c)=>setInput(c,false));el.classList.remove('is-pressed');};
     el.addEventListener('pointerdown',down);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);
   }
@@ -1126,18 +1198,24 @@
     else setInput(e.code,true);
   });
   addEventListener('keyup',(e)=>setInput(e.code,false));
+  document.addEventListener('pointerdown',()=>audio.unlock(),{once:true});
+  document.addEventListener('keydown',()=>audio.unlock(),{once:true});
   document.addEventListener('touchstart',(e)=>{const now=Date.now();if(now-lastTap<300)e.preventDefault();lastTap=now;},{passive:false});
   document.addEventListener('touchend',(e)=>{const now=Date.now();if(now-lastTap<=300)e.preventDefault();lastTap=now;},{passive:false});
   document.addEventListener('touchmove',(e)=>{if(e.target.closest('[data-scrollable]'))return;e.preventDefault();},{passive:false});
   document.addEventListener('dblclick',(e)=>e.preventDefault());
   document.addEventListener('contextmenu',(e)=>e.preventDefault());
+  document.addEventListener('selectstart',(e)=>e.preventDefault());
+  document.addEventListener('dragstart',(e)=>e.preventDefault());
   document.addEventListener('visibilitychange',()=>{
     if(document.hidden&&state==='playing'){autoPaused=true;togglePause(true);}else if(autoPaused&&state==='playing'){autoPaused=false;togglePause(false);}
   });
+  addEventListener('pageshow',()=>{audio.unlock();if(state==='playing'&&!paused)audio.resume();});
+  if (window.visualViewport) visualViewport.addEventListener('resize',resize,{passive:true});
 
   function bindTap(el, handler) {
     if(!el)return;
-    const fire=(e)=>{e.preventDefault();el.classList.add('is-pressed');if(navigator.vibrate)navigator.vibrate(15);audio.unlock();handler(e);};
+    const fire=(e)=>{e.preventDefault();el.classList.add('is-pressed');if(navigator.vibrate)navigator.vibrate(15);audio.unlock();audio.tone('tap');handler(e);};
     const release=()=>el.classList.remove('is-pressed');
     el.addEventListener('pointerdown',fire);
     el.addEventListener('pointerup',release);
@@ -1145,9 +1223,12 @@
     el.addEventListener('pointerleave',release);
   }
 
+  bindPointer('btn-up',['ArrowUp']);
   bindPointer('btn-left',['ArrowLeft']);bindPointer('btn-right',['ArrowRight']);bindPointer('btn-down',['ArrowDown']);
   bindPointer('btn-jump',['Space']);bindPointer('btn-slash',['KeyZ']);bindPointer('btn-throw',['KeyX']);bindPointer('btn-dash',['ShiftLeft']);
   bindTap($('startBtn'),startGame);
+  bindTap($('selectBtn'),()=>audio.toggle());
+  bindTap($('startPauseBtn'),()=>togglePause());
   bindTap($('nextBtn'),()=>{
     if(nextStageAction==='next')setupStage(stageIndex+1);
     else if(nextStageAction==='restart'){score=0;maxCombo=0;setupStage(0);}

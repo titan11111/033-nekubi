@@ -117,17 +117,15 @@
       </aside>
     </section>
 
-    <section id="controls" aria-label="スーパーファミコン型操作盤">
-      <div class="dpad" aria-label="十字キー">
-        <button id="btn-up" class="pad-up game-btn" type="button" aria-label="上・跳躍">▲<small>上</small></button>
-        <button id="btn-left" class="pad-left game-btn" type="button" aria-label="左へ移動">◀<small>左</small></button>
-        <span class="pad-hub" aria-hidden="true"></span>
-        <button id="btn-right" class="pad-right game-btn" type="button" aria-label="右へ移動">▶<small>右</small></button>
-        <button id="btn-down" class="pad-down game-btn" type="button" aria-label="隠れ身">▼<small>隠</small></button>
-      </div>
-      <div class="center-controls">
-        <button id="selectBtn" class="pill-btn game-btn" type="button" aria-label="消音">SELECT<small>消音</small></button>
-        <button id="startPauseBtn" class="pill-btn game-btn" type="button" aria-label="一時停止">START<small>停止</small></button>
+    <section id="controls" aria-label="操作盤">
+      <div class="dpad" id="dpad" role="application" aria-label="丸十字キー。斜め入力できます">
+        <span class="dpad-ring" aria-hidden="true"></span>
+        <span class="dpad-cross" aria-hidden="true"></span>
+        <span class="dpad-mark dpad-mark-up">▲</span>
+        <span class="dpad-mark dpad-mark-left">◀</span>
+        <span class="dpad-mark dpad-mark-right">▶</span>
+        <span class="dpad-mark dpad-mark-down">▼<small>隠</small></span>
+        <span class="dpad-nub" id="dpadNub" aria-hidden="true"></span>
       </div>
       <div class="action-buttons" aria-label="面ボタン">
         <button id="btn-throw" class="action-x game-btn" type="button" aria-label="手裏剣"><b>X</b><small>手裏剣</small></button>
@@ -135,7 +133,7 @@
         <button id="btn-slash" class="action-a game-btn" type="button" aria-label="斬撃"><b>A</b><small>斬</small></button>
         <button id="btn-jump" class="action-b game-btn" type="button" aria-label="跳躍"><b>B</b><small>跳</small></button>
       </div>
-      <p class="keyboard-help">十字移動　↓隠　↑/B跳　A斬　X手裏剣　Y影走　START停止</p>
+      <p class="keyboard-help">丸十字は斜め可　↓隠　↑/B跳　A斬　X手裏剣　Y影走　P停止</p>
     </section>
   </main>
 

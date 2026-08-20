@@ -1255,6 +1255,38 @@
     el.addEventListener('pointerdown',down);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);
   }
 
+  function bindCircularDpad(el) {
+    if(!el)return;
+    const nub=el.querySelector('.dpad-nub');
+    const keys={up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'};
+    const dirs=['up','down','left','right'];
+    let held={up:false,down:false,left:false,right:false};
+    const apply=(next)=>{
+      dirs.forEach((d)=>{if(next[d]!==held[d])setInput(keys[d],next[d]);el.classList.toggle('is-'+d,next[d]);});
+      held=next;
+    };
+    const read=(e)=>{
+      const r=el.getBoundingClientRect();
+      const cx=r.left+r.width/2,cy=r.top+r.height/2;
+      const dx=e.clientX-cx,dy=e.clientY-cy;
+      const radius=Math.min(r.width,r.height)/2;
+      const dist=Math.hypot(dx,dy);
+      const reach=Math.min(dist,radius*.42)/(dist||1);
+      if(nub)nub.style.transform=`translate(${dx*reach}px,${dy*reach}px)`;
+      if(dist<radius*.18)return {up:false,down:false,left:false,right:false};
+      const oct=Math.round((((Math.atan2(dy,dx)*180/Math.PI)+360)%360)/45)%8;
+      const table=[
+        {right:true},{right:true,down:true},{down:true},{left:true,down:true},
+        {left:true},{left:true,up:true},{up:true},{right:true,up:true}
+      ];
+      return {up:false,down:false,left:false,right:false,...(table[oct]||{})};
+    };
+    const down=(e)=>{e.preventDefault();audio.unlock();if(navigator.vibrate)navigator.vibrate(15);audio.tone('tap');el.setPointerCapture?.(e.pointerId);el.classList.add('is-pressed');apply(read(e));};
+    const move=(e)=>{if(!el.classList.contains('is-pressed'))return;e.preventDefault();apply(read(e));};
+    const up=(e)=>{e.preventDefault();el.classList.remove('is-pressed');if(nub)nub.style.transform='';apply({up:false,down:false,left:false,right:false});};
+    el.addEventListener('pointerdown',down);el.addEventListener('pointermove',move);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);
+  }
+
   function togglePause(force) {
     if(!['playing'].includes(state))return;
     paused=typeof force==='boolean'?force:!paused;
@@ -1327,12 +1359,9 @@
     el.addEventListener('pointerleave',release);
   }
 
-  bindPointer('btn-up',['ArrowUp']);
-  bindPointer('btn-left',['ArrowLeft']);bindPointer('btn-right',['ArrowRight']);bindPointer('btn-down',['ArrowDown']);
+  bindCircularDpad($('dpad'));
   bindPointer('btn-jump',['Space']);bindPointer('btn-slash',['KeyZ']);bindPointer('btn-throw',['KeyX']);bindPointer('btn-dash',['ShiftLeft']);
   bindTap($('startBtn'),startGame);
-  bindTap($('selectBtn'),()=>audio.toggle());
-  bindTap($('startPauseBtn'),()=>togglePause());
   bindTap($('nextBtn'),()=>{
     if(nextStageAction==='next')setupStage(stageIndex+1);
     else if(nextStageAction==='restart'){score=0;maxCombo=0;setupStage(0);}

@@ -89,7 +89,7 @@
     ['OffscreenCanvas', '石・木・紙の質感を画面外で一度だけ生成し再利用。', () => 'OffscreenCanvas' in window],
     ['Web Worker', '霧粒子の座標計算を別スレッドへ移し、操作遅延を軽減。', () => 'Worker' in window],
     ['Web Audio API', '斬撃・警戒・被弾を低遅延で合成し、BGMと独立制御。', () => !!(window.AudioContext || window.webkitAudioContext)],
-    ['Pointer Events', '複数ボタン同時押しと指の追従をsetPointerCaptureで安定化。', () => 'PointerEvent' in window],
+    ['Pointer Events', '丸十字は指の位置で8方向。押しっぱなしは touch 追従で維持。', () => 'PointerEvent' in window],
     ['Gamepad API', '家庭用コントローラーのスティックとボタンに対応。', () => !!navigator.getGamepads],
     ['Web Animations API', '開始・任務通知・結果画面を滑らかに遷移。', () => !!Element.prototype.animate],
     ['Page Visibility API', 'タブやアプリを離れた瞬間に自動停止し、事故死を防止。', () => 'hidden' in document],
@@ -1250,9 +1250,26 @@
 
   function bindPointer(id, codes) {
     const el=$(id);if(!el)return;
-    const down=(e)=>{e.preventDefault();audio.unlock();if(navigator.vibrate)navigator.vibrate(15);audio.tone('tap');el.setPointerCapture?.(e.pointerId);codes.forEach((c)=>setInput(c,true));el.classList.add('is-pressed');};
-    const up=(e)=>{e.preventDefault();codes.forEach((c)=>setInput(c,false));el.classList.remove('is-pressed');};
-    el.addEventListener('pointerdown',down);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);
+    let pid=null;
+    const down=(e)=>{
+      if(pid!=null)return;
+      e.preventDefault();
+      pid=e.pointerId;
+      audio.unlock();
+      if(navigator.vibrate)navigator.vibrate(15);
+      audio.tone('tap');
+      codes.forEach((c)=>setInput(c,true));
+      el.classList.add('is-pressed');
+    };
+    const up=(e)=>{
+      if(pid==null||e.pointerId!==pid)return;
+      pid=null;
+      codes.forEach((c)=>setInput(c,false));
+      el.classList.remove('is-pressed');
+    };
+    el.addEventListener('pointerdown',down);
+    document.addEventListener('pointerup',up,true);
+    document.addEventListener('pointercancel',up,true);
   }
 
   function bindCircularDpad(el) {
@@ -1261,19 +1278,21 @@
     const keys={up:'ArrowUp',down:'ArrowDown',left:'ArrowLeft',right:'ArrowRight'};
     const dirs=['up','down','left','right'];
     let held={up:false,down:false,left:false,right:false};
+    let tracking=false;
+    let pid=null;
     const apply=(next)=>{
       dirs.forEach((d)=>{if(next[d]!==held[d])setInput(keys[d],next[d]);el.classList.toggle('is-'+d,next[d]);});
       held=next;
     };
-    const read=(e)=>{
+    const readPt=(x,y)=>{
       const r=el.getBoundingClientRect();
       const cx=r.left+r.width/2,cy=r.top+r.height/2;
-      const dx=e.clientX-cx,dy=e.clientY-cy;
-      const radius=Math.min(r.width,r.height)/2;
+      const dx=x-cx,dy=y-cy;
+      const radius=Math.max(24,Math.min(r.width,r.height)/2);
       const dist=Math.hypot(dx,dy);
       const reach=Math.min(dist,radius*.42)/(dist||1);
       if(nub)nub.style.transform=`translate(${dx*reach}px,${dy*reach}px)`;
-      if(dist<radius*.18)return {up:false,down:false,left:false,right:false};
+      if(dist<radius*.16)return {up:false,down:false,left:false,right:false};
       const oct=Math.round((((Math.atan2(dy,dx)*180/Math.PI)+360)%360)/45)%8;
       const table=[
         {right:true},{right:true,down:true},{down:true},{left:true,down:true},
@@ -1281,10 +1300,46 @@
       ];
       return {up:false,down:false,left:false,right:false,...(table[oct]||{})};
     };
-    const down=(e)=>{e.preventDefault();audio.unlock();if(navigator.vibrate)navigator.vibrate(15);audio.tone('tap');el.setPointerCapture?.(e.pointerId);el.classList.add('is-pressed');apply(read(e));};
-    const move=(e)=>{if(!el.classList.contains('is-pressed'))return;e.preventDefault();apply(read(e));};
-    const up=(e)=>{e.preventDefault();el.classList.remove('is-pressed');if(nub)nub.style.transform='';apply({up:false,down:false,left:false,right:false});};
-    el.addEventListener('pointerdown',down);el.addEventListener('pointermove',move);el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);el.addEventListener('lostpointercapture',up);
+    const start=(x,y,id)=>{
+      tracking=true;pid=id;el.classList.add('is-pressed');
+      audio.unlock();if(navigator.vibrate)navigator.vibrate(15);audio.tone('tap');
+      apply(readPt(x,y));
+    };
+    const move=(x,y)=>{if(tracking)apply(readPt(x,y));};
+    const end=()=>{
+      if(!tracking)return;
+      tracking=false;pid=null;el.classList.remove('is-pressed');
+      if(nub)nub.style.transform='';
+      apply({up:false,down:false,left:false,right:false});
+    };
+    el.addEventListener('touchstart',(e)=>{
+      const t=e.changedTouches[0];if(!t||tracking)return;
+      e.preventDefault();start(t.clientX,t.clientY,t.identifier);
+    },{passive:false});
+    document.addEventListener('touchmove',(e)=>{
+      if(!tracking)return;
+      let t=null;
+      for(let i=0;i<e.touches.length;i++){if(e.touches[i].identifier===pid)t=e.touches[i];}
+      if(!t)t=e.touches[0];if(!t)return;
+      e.preventDefault();move(t.clientX,t.clientY);
+    },{passive:false,capture:true});
+    const touchEnd=(e)=>{
+      if(!tracking)return;
+      for(let i=0;i<e.changedTouches.length;i++){if(e.changedTouches[i].identifier===pid){end();return;}}
+      if(e.touches.length===0)end();
+    };
+    document.addEventListener('touchend',touchEnd,{capture:true});
+    document.addEventListener('touchcancel',touchEnd,{capture:true});
+    el.addEventListener('pointerdown',(e)=>{
+      if(tracking||e.pointerType==='touch')return;
+      e.preventDefault();start(e.clientX,e.clientY,e.pointerId);
+    });
+    document.addEventListener('pointermove',(e)=>{
+      if(!tracking||e.pointerType==='touch'||e.pointerId!==pid)return;
+      move(e.clientX,e.clientY);
+    },{passive:false});
+    document.addEventListener('pointerup',(e)=>{if(e.pointerType!=='touch'&&e.pointerId===pid)end();},true);
+    document.addEventListener('pointercancel',(e)=>{if(e.pointerType!=='touch'&&e.pointerId===pid)end();},true);
   }
 
   function togglePause(force) {

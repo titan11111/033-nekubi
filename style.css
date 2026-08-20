@@ -272,6 +272,7 @@ button:focus-visible { outline: 2px solid #fff2aa; outline-offset: 3px; }
 
 #controls {
   --pad: clamp(48px, 12.5vw, 58px);
+  --stick: min(168px, calc(var(--pad) * 3 + 6px), 44vw, 38vh);
   position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -290,10 +291,8 @@ button:focus-visible { outline: 2px solid #fff2aa; outline-offset: 3px; }
 .dpad {
   justify-self: start;
   position: relative;
-  width: calc(var(--pad) * 3 + 6px);
-  height: calc(var(--pad) * 3 + 6px);
-  min-width: 144px;
-  min-height: 144px;
+  width: var(--stick);
+  height: var(--stick);
   margin-left: 4px;
   border-radius: 50%;
   background:
@@ -306,38 +305,41 @@ button:focus-visible { outline: 2px solid #fff2aa; outline-offset: 3px; }
   cursor: pointer;
 }
 .dpad > * { pointer-events: none; }
-.dpad-ring {
+.dpad-bar {
   position: absolute;
-  inset: 7%;
-  border-radius: 50%;
-  border: 2px solid rgba(211,158,91,.22);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.35);
-}
-.dpad-cross {
-  position: absolute;
-  inset: 16%;
+  border-radius: 18%;
   background: linear-gradient(145deg, #5b6367, #1b2023 64%);
-  -webkit-mask:
-    linear-gradient(#000 0 0) center / 34% 100% no-repeat,
-    linear-gradient(#000 0 0) center / 100% 34% no-repeat;
-  mask:
-    linear-gradient(#000 0 0) center / 34% 100% no-repeat,
-    linear-gradient(#000 0 0) center / 100% 34% no-repeat;
   box-shadow: inset 2px 2px rgba(255,255,255,.12), inset -3px -3px #080a0b;
+}
+.dpad-bar-x {
+  left: 11%;
+  right: 11%;
+  top: 50%;
+  height: 32%;
+  transform: translateY(-50%);
+}
+.dpad-bar-y {
+  top: 11%;
+  bottom: 11%;
+  left: 50%;
+  width: 32%;
+  transform: translateX(-50%);
 }
 .dpad-mark {
   position: absolute;
+  z-index: 1;
   color: #c5cbc8;
   font: 800 13px/1 sans-serif;
   text-shadow: 0 1px 0 #000;
 }
 .dpad-mark small { display: block; margin-top: 2px; color: #d4b56e; font: 700 7px/1 var(--body); }
-.dpad-mark-up { top: 11%; left: 50%; transform: translateX(-50%); }
-.dpad-mark-down { bottom: 9%; left: 50%; transform: translateX(-50%); text-align: center; }
-.dpad-mark-left { left: 12%; top: 50%; transform: translateY(-50%); }
-.dpad-mark-right { right: 12%; top: 50%; transform: translateY(-50%); }
+.dpad-mark-up { top: 10%; left: 50%; transform: translateX(-50%); }
+.dpad-mark-down { bottom: 8%; left: 50%; transform: translateX(-50%); text-align: center; }
+.dpad-mark-left { left: 11%; top: 50%; transform: translateY(-50%); }
+.dpad-mark-right { right: 11%; top: 50%; transform: translateY(-50%); }
 .dpad-nub {
   position: absolute;
+  z-index: 2;
   left: 50%;
   top: 50%;
   width: 26%;
@@ -351,33 +353,33 @@ button:focus-visible { outline: 2px solid #fff2aa; outline-offset: 3px; }
 .dpad.is-down .dpad-mark-down,
 .dpad.is-left .dpad-mark-left,
 .dpad.is-right .dpad-mark-right { color: #f0d59a; }
-.dpad.is-pressed .dpad-cross { filter: brightness(1.18); }
+.dpad.is-pressed .dpad-bar { filter: brightness(1.18); }
 
 .action-buttons {
   justify-self: end;
   position: relative;
-  width: calc(var(--pad) * 3 + 6px);
-  height: calc(var(--pad) * 3 + 6px);
+  width: var(--stick);
+  height: var(--stick);
   margin-right: 4px;
 }
 .action-buttons button {
   position: absolute;
   display: grid;
   place-content: center;
-  width: var(--pad);
-  height: var(--pad);
-  min-width: 48px;
-  min-height: 48px;
+  width: calc(var(--stick) / 3);
+  height: calc(var(--stick) / 3);
+  min-width: 0;
+  min-height: 0;
   border-radius: 50%;
   color: #fff4d8;
   box-shadow: inset 2px 2px rgba(255,255,255,.16), inset -4px -5px rgba(0,0,0,.35), 0 4px 5px #000;
 }
 .action-buttons b { font: 900 16px/1 sans-serif; }
 .action-buttons small { margin-top: 2px; font: 700 7px/1 var(--body); }
-.action-x { top: 0; left: calc(50% - var(--pad) / 2); background: radial-gradient(circle at 32% 28%, #d4b06a, #6a4a22 72%); }
-.action-y { top: calc(50% - var(--pad) / 2); left: 0; background: radial-gradient(circle at 32% 28%, #4e7d74, #163230 72%); }
-.action-a { top: calc(50% - var(--pad) / 2); right: 0; background: radial-gradient(circle at 32% 28%, #c45a42, #6e1a16 72%); }
-.action-b { bottom: 0; left: calc(50% - var(--pad) / 2); color: #2c2618; background: radial-gradient(circle at 32% 28%, #efe6c8, #8d8064 74%); }
+.action-x { top: 0; left: calc(50% - var(--stick) / 6); background: radial-gradient(circle at 32% 28%, #d4b06a, #6a4a22 72%); }
+.action-y { top: calc(50% - var(--stick) / 6); left: 0; background: radial-gradient(circle at 32% 28%, #4e7d74, #163230 72%); }
+.action-a { top: calc(50% - var(--stick) / 6); right: 0; background: radial-gradient(circle at 32% 28%, #c45a42, #6e1a16 72%); }
+.action-b { bottom: 0; left: calc(50% - var(--stick) / 6); color: #2c2618; background: radial-gradient(circle at 32% 28%, #efe6c8, #8d8064 74%); }
 .action-buttons button:active,
 .action-buttons button.is-pressed {
   transform: scale(.92);

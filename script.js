@@ -56,6 +56,7 @@
   let alertLevel = 0;
   let alertPulse = 0;
   let spottedThisStep = false;
+  let snoreNear = { dist: 9999, heavy: false, pan: 0 };
   let score = 0;
   let stageScoreStart = 0;
   let maxCombo = 0;
@@ -102,6 +103,8 @@
       this.muted = !!saved.muted;
       this.current = null;
       this.buzzer = null;
+      this.snore = null;
+      this.htmlUnlocked = false;
       stealthBgm.loop = true;
       battleBgm.loop = true;
       stealthBgm.volume = .34;
@@ -128,6 +131,16 @@
           source.connect(this.context.destination);
           source.start(0);
         } catch (_) {}
+      }
+      if (!this.htmlUnlocked) {
+        this.htmlUnlocked = true;
+        [stealthBgm, battleBgm].forEach((el) => {
+          const prev = el.volume;
+          el.volume = 0;
+          const play = el.play();
+          if (play && play.then) play.then(() => { el.pause(); el.currentTime = 0; el.volume = prev; }).catch(() => { el.volume = prev; });
+          else el.volume = prev;
+        });
       }
     }
 
@@ -218,7 +231,80 @@
       else this.stopBuzzer();
     }
 
-    pause() { stealthBgm.pause(); battleBgm.pause(); this.stopBuzzer(); }
+    startSnore() {
+      if (this.muted || this.snore) return;
+      this.unlock();
+      if (!this.context) return;
+      const ac = this.context;
+      const len = Math.floor(ac.sampleRate * .7);
+      const buf = ac.createBuffer(1, len, ac.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const src = ac.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const filter = ac.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 260;
+      const osc = ac.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = 86;
+      const oscGain = ac.createGain();
+      oscGain.gain.value = .4;
+      const pulse = ac.createGain();
+      pulse.gain.value = .55;
+      const lfo = ac.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = .68;
+      const lfoDepth = ac.createGain();
+      lfoDepth.gain.value = .42;
+      const vol = ac.createGain();
+      vol.gain.value = .0001;
+      const pan = ac.createStereoPanner ? ac.createStereoPanner() : ac.createGain();
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(pulse.gain);
+      src.connect(filter);
+      filter.connect(pulse);
+      osc.connect(oscGain).connect(pulse);
+      pulse.connect(vol);
+      vol.connect(pan).connect(this.master || ac.destination);
+      src.start();
+      osc.start();
+      lfo.start();
+      this.snore = { src, osc, lfo, vol, filter, pan };
+    }
+
+    stopSnore() {
+      if (!this.snore) return;
+      const { src, osc, lfo, vol } = this.snore;
+      this.snore = null;
+      try {
+        const t = this.context.currentTime;
+        vol.gain.cancelScheduledValues(t);
+        vol.gain.setValueAtTime(.0001, t);
+        src.stop(t + .05);
+        osc.stop(t + .05);
+        lfo.stop(t + .05);
+      } catch (_) {}
+    }
+
+    setSnore(dist, heavy, panValue) {
+      const hear = 340;
+      if (this.muted || paused || state !== 'playing' || dist > hear) {
+        this.stopSnore();
+        return;
+      }
+      this.startSnore();
+      if (!this.snore) return;
+      const t = 1 - dist / hear;
+      const vol = (heavy ? .3 : .18) * (.22 + t * .78);
+      const now = this.context.currentTime;
+      this.snore.vol.gain.setTargetAtTime(vol, now, .08);
+      this.snore.filter.frequency.setTargetAtTime(heavy ? 190 : 300, now, .1);
+      if (this.snore.pan.pan) this.snore.pan.pan.setTargetAtTime(clamp(panValue, -.75, .75), now, .08);
+    }
+
+    pause() { stealthBgm.pause(); battleBgm.pause(); this.stopBuzzer(); this.stopSnore(); }
     resume() { if (!this.muted && this.current && state === 'playing') this.play(this.current); }
 
     syncScene() {
@@ -300,7 +386,7 @@
       if (wasPressed('ShiftLeft', 'ShiftRight', 'GamepadDash')) this.shadowDash();
 
       const inShadow = stage.shadows.some((s) => overlap(this.x, this.y, this.w, this.h, s[0], s[1], s[2], s[3]));
-      this.hidden = down && this.grounded && (inShadow || Math.abs(this.vx) < 30);
+      this.hidden = down && this.grounded && inShadow;
       const accel = this.hidden ? 520 : 1250;
       const maxSpeed = this.hidden ? 92 : 265;
 
@@ -430,7 +516,7 @@
     const p = platforms[spec.p];
     const type = spec.type || 'guard';
     const size = type === 'boss' ? [72, 52] : type === 'samurai' ? [42, 56] : type === 'scout' ? [32, 46] : [34, 48];
-    const hp = type === 'boss' ? 5 : type === 'samurai' ? 3 : type === 'archer' ? 2 : type === 'scout' ? 2 : 2;
+    const hp = type === 'boss' ? 10 : type === 'samurai' ? 3 : type === 'archer' ? 2 : type === 'scout' ? 2 : 2;
     return {
       x: spec.x, y: p.y - size[1], w: size[0], h: size[1], type, platform: spec.p,
       origin: spec.x, range: Math.min(type === 'scout' ? 180 : 140, p.w * .42), facing: index % 2 ? 1 : -1,
@@ -482,14 +568,20 @@
     const dx = player.x - e.x;
     const dy = Math.abs((player.y + player.h / 2) - (e.y + e.h / 2));
     const visionScale = stage.assist?.vision || 1;
-    const vision = (e.type === 'boss' ? 210 : e.type === 'archer' ? 360 : e.type === 'scout' ? 300 : 230) * visionScale;
-    const facingPlayer = dx * e.facing > -25;
-    const sees = !player.hidden && player.dash <= 0 && facingPlayer && Math.abs(dx) < vision && dy < 95;
+    const vision = (e.type === 'boss' ? 300 : e.type === 'archer' ? 420 : e.type === 'scout' ? 340 : 280) * visionScale;
+    const facingPlayer = dx * e.facing > -80;
+    const sees = !player.hidden && player.dash <= 0 && facingPlayer && Math.abs(dx) < vision && dy < 130;
     if (sees) spottedThisStep = true;
+    if (e.sleeping) {
+      const dist = Math.hypot(dx, player.y - e.y);
+      if (dist < snoreNear.dist) {
+        snoreNear = { dist, heavy: e.type === 'boss' || e.deepSleep, pan: (e.x - player.x) / 380 };
+      }
+    }
 
     if (e.type === 'boss' && e.sleeping) {
-      const close = Math.abs(dx) < 64 && dy < 46 && !player.hidden;
-      if (close) {
+      const close = Math.abs(dx) < 120 && dy < 72 && (!player.hidden || Math.abs(dx) < 40);
+      if (close || alertLevel > 38) {
         e.sleeping = false;
         e.alerted = true;
         alertPulse = .5;
@@ -516,30 +608,38 @@
       }
     }
 
-    if (e.sleeping && !sees && alertLevel < 65) {
-      landEnemy(e, oldY, dt);
-      return;
+    if (e.sleeping && !sees && alertLevel < 48) {
+      if (!player.hidden && Math.abs(dx) < 96 && dy < 70) {
+        e.sleeping = false;
+        e.alerted = true;
+        alertPulse = .35;
+        spottedThisStep = true;
+      } else {
+        landEnemy(e, oldY, dt);
+        return;
+      }
     }
-    if (sees || alertLevel > 76) {
+    if (sees || alertLevel > 58) {
       if (!e.alerted) { e.alerted = true; alertPulse = .4; audio.syncScene(); }
       e.sleeping = false;
       const alertScale = stage.assist?.alert || 1;
-      alertLevel = clamp(alertLevel + (e.type === 'boss' ? 10 : 18) * alertScale * dt, 0, 100);
+      alertLevel = clamp(alertLevel + (e.type === 'boss' ? 16 : 22) * alertScale * dt, 0, 100);
       e.facing = Math.sign(dx) || e.facing;
-      if (e.type === 'archer' && e.shootCooldown <= 0 && Math.abs(dx) > 75 && e.grounded) {
-        projectiles.push({ owner: 'enemy', x: e.x + e.w / 2, y: e.y + 20, vx: Math.sign(dx) * 320, vy: 0, r: 6, life: 3, rotation: 0 });
-        e.shootCooldown = 1.85;
+      if (e.type === 'archer' && e.shootCooldown <= 0 && Math.abs(dx) > 60 && e.grounded) {
+        projectiles.push({ owner: 'enemy', x: e.x + e.w / 2, y: e.y + 20, vx: Math.sign(dx) * 420, vy: 0, r: 6, life: 3, rotation: 0 });
+        e.shootCooldown = 1.15;
       }
       const speedScale = stage.assist?.enemySpeed || 1;
       if (e.type === 'archer') e.vx *= .7;
-      else if (Math.abs(dx) > 38) e.vx = Math.sign(dx) * (e.type === 'boss' ? 78 : e.type === 'scout' ? 118 : e.type === 'samurai' ? 92 : 74) * speedScale;
+      else if (Math.abs(dx) > 38) e.vx = Math.sign(dx) * (e.type === 'boss' ? 128 : e.type === 'scout' ? 148 : e.type === 'samurai' ? 118 : 96) * speedScale;
       else e.vx *= .82;
     } else {
       e.alerted = false;
+      if (!player.hidden && Math.abs(dx) < 150 && dy < 90) e.facing = Math.sign(dx) || e.facing;
       if (e.type === 'archer') {
         e.vx = 0;
       } else {
-        const patrol = e.type === 'scout' ? 72 : 48;
+        const patrol = e.type === 'scout' ? 96 : e.type === 'samurai' ? 78 : 68;
         e.vx = e.facing * patrol * (stage.assist?.enemySpeed || 1);
       }
     }
@@ -551,8 +651,8 @@
     landEnemy(e, oldY, dt);
 
     if (overlap(player.x, player.y, player.w, player.h, e.x, e.y, e.w, e.h) && e.attackCooldown <= 0 && !e.sleeping) {
-      player.hurt(1, e.x + e.w / 2);
-      e.attackCooldown = e.type === 'boss' ? 1.15 : 1.2;
+      player.hurt(e.type === 'boss' ? 4 : 1, e.x + e.w / 2);
+      e.attackCooldown = e.type === 'boss' ? .72 : .95;
     }
   }
 
@@ -612,6 +712,7 @@
     stageScoreStart = score;
     spottedThisStep = false;
     audio.stopBuzzer();
+    audio.stopSnore();
     state = 'playing';
     paused = false;
     pauseLayer.classList.add('hidden');
@@ -740,13 +841,15 @@
     totalTime += dt;
     stageTime += dt;
     spottedThisStep = false;
+    snoreNear = { dist: 9999, heavy: false, pan: 0 };
     player.update(dt);
     enemies.forEach((e) => updateEnemy(e, dt));
     audio.setBuzzer(spottedThisStep);
+    audio.setSnore(spottedThisStep ? 9999 : snoreNear.dist, snoreNear.heavy, snoreNear.pan);
     updateProjectiles(dt);
     updateObjectives();
     updateParticles(dt);
-    alertLevel = clamp(alertLevel - (player.hidden ? 23 : 9) * dt, 0, 100);
+    alertLevel = clamp(alertLevel - (player.hidden ? 14 : 5) * dt, 0, 100);
     alertPulse = Math.max(0, alertPulse - dt);
     comboTimer = Math.max(0, comboTimer - dt);
     if (comboTimer <= 0) combo = 0;
@@ -1190,7 +1293,7 @@
   }
 
   addEventListener('resize',resize,{passive:true});
-  addEventListener('orientationchange',()=>setTimeout(resize,120),{passive:true});
+  addEventListener('orientationchange',()=>setTimeout(resize,280),{passive:true});
   addEventListener('keydown',(e)=>{
     if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space','KeyZ','KeyX','ShiftLeft','ShiftRight','KeyP','Enter'].includes(e.code))e.preventDefault();
     if(e.code==='KeyP')togglePause();
@@ -1211,6 +1314,7 @@
     if(document.hidden&&state==='playing'){autoPaused=true;togglePause(true);}else if(autoPaused&&state==='playing'){autoPaused=false;togglePause(false);}
   });
   addEventListener('pageshow',()=>{audio.unlock();if(state==='playing'&&!paused)audio.resume();});
+  addEventListener('focus',()=>{audio.unlock();if(state==='playing'&&!paused)audio.resume();});
   if (window.visualViewport) visualViewport.addEventListener('resize',resize,{passive:true});
 
   function bindTap(el, handler) {
